@@ -1,7 +1,7 @@
 {
   "name": "x402-guard",
   "version": "0.0.0",
-  "description": "A spending policy that holds across an agent's whole session — not one transaction at a time.",
+  "description": "A spending policy that holds across an agent's whole session \u2014 not one transaction at a time.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
-    "demo": "tsx demo/live-payment.ts"
+    "demo": "tsx demo/live-payment.ts",
+    "verify:live": "tsx scripts/verify-live-reconcile.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
