@@ -11,6 +11,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
 import { x402Client } from "@x402/core/client";
+import { HTTPFacilitatorClient } from "@x402/core/http";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
@@ -41,7 +42,8 @@ const guard = await Guard.open({
 
 // 3. The x402 client, with the exact/EIP-3009 scheme and the guard's hooks.
 const hooks = x402GuardHooks(guard);
-const client = new x402Client({ schemes: [{ network: "eip155:84532", client: new ExactEvmScheme(signer) }] })
+const client = x402Client
+  .fromConfig({ schemes: [{ network: "eip155:84532", client: new ExactEvmScheme(signer) }] })
   .onBeforePaymentCreation(hooks.onBeforePaymentCreation)
   .onAfterPaymentCreation(hooks.onAfterPaymentCreation)
   .onPaymentResponse(hooks.onPaymentResponse)

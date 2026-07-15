@@ -6,3 +6,4 @@ dist/
 
 # Internal planning artifacts, not part of the published library.
 plans/
+demo/ledger.jsonl
