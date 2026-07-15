@@ -85,6 +85,27 @@ describe("money never becomes a float on the way to disk", () => {
     // Proof the danger is real, not theoretical:
     expect(JSON.parse('{"n":9007199254740993}').n).toBe(9_007_199_254_740_992);
   });
+
+  it("refuses a line whose amount is a JSON number, not a string", async () => {
+    // BigInt(5) succeeds, so a numeric amount would load silently and defeat the
+    // whole reason amounts are strings — and a number past 2^53 is already
+    // corrupted by JSON.parse before decode sees it. Reject the type outright.
+    const line = JSON.stringify({
+      holdId: "hold-1", status: "held", amount: 1800000, at: NOW, // number, not string
+      quote: { amount: "1800000", asset: USDC, network: NET, payTo: SELLER, resource: "r" },
+    });
+    await writeFile(path, line + "\n", "utf8");
+    await expect(new JsonlLedgerStore(path).readAll()).rejects.toThrow(/must be strings/);
+  });
+
+  it("refuses a line whose quote amount is a JSON number", async () => {
+    const line = JSON.stringify({
+      holdId: "hold-1", status: "held", amount: "1800000", at: NOW,
+      quote: { amount: 1800000, asset: USDC, network: NET, payTo: SELLER, resource: "r" }, // number
+    });
+    await writeFile(path, line + "\n", "utf8");
+    await expect(new JsonlLedgerStore(path).readAll()).rejects.toThrow(/must be strings/);
+  });
 });
 
 describe("the file is a human-readable audit trail", () => {

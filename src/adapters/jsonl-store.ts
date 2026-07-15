@@ -135,6 +135,15 @@ function decode(l: Line): Entry {
   if (!STATUSES.has(l.status)) {
     throw new Error(`unknown status ${JSON.stringify(l.status)}`);
   }
+  // Rule 3 of this file: amounts are strings, never JSON numbers. Enforce it,
+  // don't just document it — BigInt(5) succeeds, so a numeric amount would load
+  // silently. Worse, a number past 2^53 is already mangled by JSON.parse before
+  // we ever see it, so the only defense is to reject the type at the boundary.
+  if (typeof l.amount !== "string" || typeof l.quote.amount !== "string") {
+    throw new Error(
+      `amounts must be strings, not JSON numbers (entry ${l.holdId})`,
+    );
+  }
   const amount = BigInt(l.amount);
   if (amount < 0n) throw new Error(`negative amount ${l.amount}`);
   if (BigInt(l.quote.amount) < 0n) throw new Error(`negative quote amount ${l.quote.amount}`);
