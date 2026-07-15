@@ -292,9 +292,12 @@ export class Ledger {
   /**
    * Holds that have gone quiet past the timeout and need a chain lookup.
    *
-   * A hold with no authorization nonce cannot be looked up (the payload was
-   * never signed, so no payment could have been broadcast) — those are safe to
-   * release, and the sweep caller does so.
+   * Returns every stale 'held' hold, nonce or no nonce. A nonce-less hold cannot
+   * be looked up on-chain — there is no signed payload to query for — but it is
+   * NOT safe to release from here: attachAuthorization runs AFTER signing, so a
+   * crash in the sign→attach window leaves a live bearer authorization with no
+   * nonce recorded. The sweep flags those 'indeterminate' for a human rather
+   * than releasing them; releasing would risk the double-spend. See reconcile.ts.
    */
   staleHolds(now: number, timeoutMs: number): readonly Entry[] {
     return this.current().filter(

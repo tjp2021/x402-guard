@@ -86,7 +86,12 @@ export interface X402GuardHooks {
 export function x402GuardHooks(guard: Guard): X402GuardHooks {
   // before → after: hold id by the requirements object the SDK threads through.
   const holdByRequirements = new WeakMap<object, string>();
-  // after → response: hold id by the unique EIP-3009 nonce.
+  // after → response: hold id by the unique EIP-3009 nonce. Drained in
+  // onPaymentResponse; a payment whose response hook never fires (dropped or
+  // crashed after signing) leaks its entry. Bounded in practice by the payments
+  // in flight in one agent session — a long-lived, multi-tenant host should wrap
+  // this with a TTL or size cap. (The hold itself is not lost: the reconciler
+  // still resolves it against the chain from the durable ledger.)
   const holdByNonce = new Map<string, string>();
 
   return {
