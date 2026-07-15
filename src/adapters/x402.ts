@@ -98,7 +98,14 @@ export function x402GuardHooks(guard: Guard): X402GuardHooks {
         return { abort: true, reason: `x402-guard: unsupported scheme "${req.scheme}"` };
       }
 
-      const quote = toQuote(ctx.paymentRequired, req);
+      let quote;
+      try {
+        quote = toQuote(ctx.paymentRequired, req);
+      } catch {
+        // A malformed amount from a hostile 402 must not throw out of the hook.
+        // Abort cleanly — the payment is never signed either way.
+        return { abort: true, reason: `x402-guard: unparseable payment amount "${req.amount}"` };
+      }
       const auth = await guard.authorize(quote);
 
       if (auth.decision !== "allow") {

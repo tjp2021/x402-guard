@@ -3,8 +3,6 @@
 A spending policy that holds across an agent's whole session — not one
 transaction at a time.
 
-[![ci](https://github.com/OWNER/x402-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/x402-guard/actions/workflows/ci.yml)
-
 ## The problem
 
 x402 lets an AI agent pay for things over HTTP. The SDK's pre-payment hook

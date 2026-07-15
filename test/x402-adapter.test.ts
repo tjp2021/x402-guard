@@ -97,6 +97,18 @@ describe("the x402 adapter wires the guard into the real hook lifecycle", () => 
     expect(before).toEqual({ abort: true, reason: expect.stringContaining("unsupported scheme") });
   });
 
+  it("aborts cleanly on a malformed amount from a hostile server, without throwing", async () => {
+    // A hostile 402 can send an amount that is not an integer. The before-hook
+    // must return a clean abort, not let BigInt throw out of the SDK hook.
+    const guard = await open();
+    const hooks = x402GuardHooks(guard);
+    const before = await hooks.onBeforePaymentCreation({
+      paymentRequired: paymentRequired(),
+      selectedRequirements: { ...requirements("not-a-number"), scheme: "exact" },
+    });
+    expect(before).toEqual({ abort: true, reason: expect.stringContaining("unparseable payment amount") });
+  });
+
   it("abandons the hold when signing fails — no payload, budget released", async () => {
     const guard = await open();
     const hooks = x402GuardHooks(guard);

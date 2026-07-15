@@ -1,7 +1,7 @@
 /**
  * The policy document, and the verdict it produces.
  *
- * Design constraints, each earned from prior art (see LOG.md 2026-07-14):
+ * Design constraints, each earned from prior art in policy-language design:
  *
  * - No expression language. Fixed keys, typed values. Rego and XACML both died
  *   of unreadability; if a finance owner cannot read the policy, we have

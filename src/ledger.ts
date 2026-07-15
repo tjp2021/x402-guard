@@ -1,7 +1,7 @@
 /**
  * The ledger: append-only spend record with authorization holds.
  *
- * Why holds exist (LOG.md 2026-07-14, adversarial finding 2):
+ * Why holds exist:
  *
  * Check-then-pay is not atomic. An agent with $0.90 of budget left fires two
  * $0.80 payments concurrently. Both evaluate against the same remaining
