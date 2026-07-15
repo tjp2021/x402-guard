@@ -21,6 +21,7 @@ import { x402Client } from "@x402/core/client";
 import { HTTPFacilitatorClient } from "@x402/core/http";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { paymentMiddlewareFromConfig } from "@x402/express";
+import { ExactEvmScheme as ExactEvmServerScheme } from "@x402/evm/exact/server";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
 import { Guard, loadPolicy, JsonlLedgerStore, ViemChainReader, x402GuardHooks } from "../src/index.js";
@@ -52,8 +53,23 @@ async function main() {
   app.use(paymentMiddlewareFromConfig(
     { "GET /paid": { accepts: { scheme: "exact", payTo: receiver, price: "$0.01", network: NETWORK } } },
     new HTTPFacilitatorClient({ url: FACILITATOR }),
+    [{ network: NETWORK, server: new ExactEvmServerScheme() }],
   ));
   app.get("/paid", (_req, res) => res.json({ ok: true, secret: "the paid resource" }));
+
+  // A second route whose seller is NOT on the policy allowlist. The guard should
+  // refuse to pay it — before signing, so no money can move.
+  const stranger = "0x00000000000000000000000000000000BeefBeef";
+  const app2 = express();
+  app2.use(paymentMiddlewareFromConfig(
+    { "GET /paid": { accepts: { scheme: "exact", payTo: stranger, price: "$0.01", network: NETWORK } } },
+    new HTTPFacilitatorClient({ url: FACILITATOR }),
+    [{ network: NETWORK, server: new ExactEvmServerScheme() }],
+  ));
+  app2.get("/paid", (_req, res) => res.json({ ok: true, secret: "should never be reached" }));
+  const strangerServer = createServer(app2);
+  await new Promise<void>((r) => strangerServer.listen(PORT + 1, r));
+
   const server = createServer(app);
   await new Promise<void>((r) => server.listen(PORT, r));
 
@@ -101,6 +117,24 @@ async function main() {
     console.log(`\n✓ settled on-chain: https://sepolia.basescan.org/tx/${settled.transaction}`);
   }
 
+  // --- now try to pay a seller the policy does not allow --------------------
+  console.log("\n--- attempting to pay a NON-allowlisted seller ($0.01) ---");
+  const balanceBefore = (await publicClient.readContract({
+    address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [account.address],
+  })) as bigint;
+
+  const res2 = await fetchWithPay(`http://localhost:${PORT + 1}/paid`).catch((e) => ({ status: "blocked", err: String(e) }));
+  const balanceAfter = (await publicClient.readContract({
+    address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [account.address],
+  })) as bigint;
+
+  console.log("result:", "status" in res2 ? res2.status : res2);
+  console.log("USDC moved:", Number(balanceBefore - balanceAfter) / 1e6, "(want 0 — the guard blocked it before signing)");
+  if (balanceBefore === balanceAfter) {
+    console.log("✓ blocked: the guard denied a non-allowlisted payment and no money moved");
+  }
+
+  strangerServer.close();
   server.close();
 }
 

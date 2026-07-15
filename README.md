@@ -136,11 +136,19 @@ What exists and is tested:
   confirmed to fail when the code it guards is deliberately broken, because a
   test that cannot fail is not a test.
 
-**The one thing not yet demonstrated is a live on-chain transaction**, which
-needs a funded Base Sepolia wallet and a payable x402 endpoint — the wiring is
-proven by the integration tests, and [DEMO.md](./DEMO.md) is the one-command path
-to a real settlement once a testnet wallet is funded. The chain reader is
-exercised against fakes in the test suite (a live RPC is not hit in CI).
+**Demonstrated end to end on Base Sepolia.** `npm run demo` stands up a local
+x402 server and pays it through the guard; the payment settles on-chain, and a
+second payment to a seller the policy does not allow is blocked before signing —
+no money moves. A real run:
+
+- allowed payment settled:
+  [`0x82ba06be…`](https://sepolia.basescan.org/tx/0x82ba06be4ad379fc4f61e14533b4812bfff366060e9c63368dc435a1249a5ce2)
+  — 0.01 USDC moved from payer to seller;
+- non-allowlisted payment: **denied by the guard, 0 USDC moved.**
+
+See [DEMO.md](./DEMO.md) to reproduce. The chain reader is exercised against
+fakes in the test suite (no live RPC in CI); the demo is where it meets the real
+chain.
 
 ## Prior art
 
