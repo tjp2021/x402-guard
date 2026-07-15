@@ -1,7 +1,7 @@
 {
   "name": "x402-guard",
   "version": "0.0.0",
-  "description": "A spending policy that holds across an agent's whole session \u2014 not one transaction at a time.",
+  "description": "A spending policy that holds across an agent's whole session — not one transaction at a time.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -17,6 +17,9 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@x402/core": "^2.18.0",
+    "@x402/evm": "^2.18.0",
+    "@x402/fetch": "^2.18.0",
     "viem": "^2.55.2",
     "yaml": "^2.9.0"
   },

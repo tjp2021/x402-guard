@@ -22,6 +22,8 @@ export type { Atomic } from "./amount.js";
 
 export { JsonlLedgerStore } from "./adapters/jsonl-store.js";
 export { ViemChainReader } from "./adapters/viem-chain.js";
+export { x402GuardHooks } from "./adapters/x402.js";
+export type { X402GuardHooks } from "./adapters/x402.js";
 export type { ViemChainReaderOptions } from "./adapters/viem-chain.js";
 
 export type {
