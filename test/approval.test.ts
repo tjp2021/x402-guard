@@ -91,6 +91,37 @@ describe("the approval tier is a real gate, not a dead end", () => {
     expect((await g.authorize(q)).decision).toBe("require_approval");
   });
 
+  it("burns an approval spent on a DENY — no silent auto-authorize once the block clears", async () => {
+    // The gap this closes: an approval is consumed only when it produces an
+    // ALLOW. If the approved quote is denied for another reason (budget full,
+    // velocity), a naive guard leaves the 'yes' in the map until its TTL — and
+    // the moment the blocking condition clears, the next authorize() of the same
+    // quote fires the payment on a human decision that, when it was given, was
+    // refused. For a spending guard, a yes is spent by the attempt, not banked.
+    const g = await open();
+    const q = quote("1.00"); // approval-tier
+
+    // Fill the $5.00 daily budget to $4.41 with sub-threshold payments (no
+    // approval, under the velocity cap), so the approved $1.00 is over budget.
+    const holds: string[] = [];
+    for (let i = 0; i < 9; i++) {
+      const r = await g.authorize(quote("0.49"));
+      expect(r.decision).toBe("allow");
+      holds.push(r.holdId!);
+    }
+
+    // The human approves the $1.00 — but right now it's over budget and denied.
+    g.approve(q);
+    expect((await g.authorize(q)).decision).toBe("deny");
+
+    // Budget frees (two never-signed holds abandoned). No fresh approval given.
+    await g.abandon(holds[0]!, "not signed");
+    await g.abandon(holds[1]!, "not signed");
+
+    // The stale 'yes' must NOT authorize it now — a new human decision is needed.
+    expect((await g.authorize(q)).decision).toBe("require_approval");
+  });
+
   it("does not honor an expired approval", async () => {
     const g = await Guard.open({
       policy,

@@ -108,6 +108,13 @@ export class Guard {
     });
 
     if (verdict.decision !== "allow") {
+      // A "yes" is spent by the attempt, not banked. If an approval was present
+      // and the payment was still denied — over budget, over the velocity cap,
+      // outside the mandate window — burn it here too, inside the critical
+      // section. Otherwise the yes lingers until its TTL, and the moment the
+      // blocking condition clears, the next authorize() of the same quote would
+      // fire the payment on a human decision that, when given, was refused.
+      if (approval !== undefined) this.approvals.delete(qh);
       return { verdict, decision: verdict.decision };
     }
 
