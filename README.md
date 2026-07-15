@@ -158,12 +158,15 @@ no money moves. A real run:
 
 - allowed payment settled:
   [`0x82ba06be…`](https://sepolia.basescan.org/tx/0x82ba06be4ad379fc4f61e14533b4812bfff366060e9c63368dc435a1249a5ce2)
-  — 0.01 USDC moved from payer to seller;
+  — 0.01 USDC moved from payer to the configured payee;
 - non-allowlisted payment: **denied by the guard, 0 USDC moved.**
 
 See [DEMO.md](./DEMO.md) to reproduce. The chain reader is exercised against
-fakes in the test suite (no live RPC in CI); the demo is where it meets the real
-chain.
+fakes in the test suite (no live RPC in CI). `npm run verify:live` runs the real
+`ViemChainReader` against that settlement on Base Sepolia and confirms it
+reconciles — matching the `AuthorizationUsed` log for the nonce to the paired
+`Transfer`'s sender, recipient, and amount — so the on-chain path is checked on
+real data, not only fakes.
 
 ## Prior art
 
