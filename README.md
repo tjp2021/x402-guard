@@ -123,9 +123,16 @@ The pieces this is built to withstand, and where its edges are:
   quote in a different token or on mainnet is denied outright.
 - **The quote is untrusted.** A negative amount cannot mint budget; a malformed
   address cannot defeat the allowlist. Both are denied at the boundary.
-- **The facilitator is untrusted for evidence.** Reconciliation reads settlement
-  from the chain, not from the facilitator's index — the answer to payments that
-  settle but never get indexed.
+- **The facilitator is untrusted for evidence — in reconciliation.** When a hold
+  goes quiet, reconciliation reads settlement from the chain, not the
+  facilitator's index (the answer to payments that settle but never get indexed).
+  On the happy path, though, the adapter confirms a hold from the facilitator's
+  success response without an inline chain check. That is fail-safe — a false
+  success keeps the budget committed, it never frees it — but such a `settled`
+  entry is not independently verified until reconciliation or `npm run
+  verify:live` runs against it. The `verifyTransfer` that does the verifying is
+  the same code either path uses; wiring it inline on every settlement is a small
+  extension, not a redesign. Stated plainly so the claim is not oversold.
 - **A signed authorization is a bearer instrument.** It is not released until it
   can no longer be submitted (`validBefore`), and a hold whose payload may have
   been signed is never auto-released.
