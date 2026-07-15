@@ -147,7 +147,7 @@ What exists and is tested:
   Verified against the installed `@x402/core`/`@x402/evm` types and
   integration-tested through the full hook lifecycle, including the
   split-purchase attack caught through the actual hooks;
-- 117 tests. The safety-critical ones are mutation-checked by hand — the test is
+- 122 tests. The safety-critical ones are mutation-checked by hand — the test is
   confirmed to fail when the code it guards is deliberately broken, because a
   test that cannot fail is not a test.
 
@@ -158,7 +158,9 @@ no money moves. A real run:
 
 - allowed payment settled:
   [`0x82ba06be…`](https://sepolia.basescan.org/tx/0x82ba06be4ad379fc4f61e14533b4812bfff366060e9c63368dc435a1249a5ce2)
-  — 0.01 USDC moved from payer to the configured payee;
+  — 0.01 USDC moved from payer to the configured payee. (The demo pays the burn
+  address `0x…dEaD`, so it's a real on-chain USDC settlement with no counterparty
+  to fund — anyone can reproduce it.)
 - non-allowlisted payment: **denied by the guard, 0 USDC moved.**
 
 See [DEMO.md](./DEMO.md) to reproduce. The chain reader is exercised against
@@ -211,7 +213,7 @@ import directly from `dist/` after building).
 
 ```sh
 npm ci
-npm test          # 117 tests
+npm test          # 122 tests
 npm run typecheck  # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 npm run build      # emit dist/
 ```
