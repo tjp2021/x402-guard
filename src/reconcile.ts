@@ -157,6 +157,19 @@ async function reconcileOne(
     // deadline passes and the transfer would revert on-chain. Releasing before
     // then frees budget the agent respends while the original is still landable.
     const deadline = current.validBefore;
+    // A non-finite deadline (a malformed validBefore coerced to NaN) must never
+    // fall through to release: `now <= NaN` is false, which would release a hold
+    // whose authorization may still be submittable — the double-spend, in the one
+    // place the design cannot fail unsafe. "Cannot prove the deadline passed" is
+    // treated exactly like "deadline not yet reached": hold and flag for a human.
+    if (deadline !== undefined && !Number.isFinite(deadline)) {
+      const detail =
+        `chain shows the authorization unused, but its validBefore is not a finite ` +
+        `timestamp (${String(deadline)}); cannot prove it can no longer be submitted. ` +
+        `Holding for a human rather than releasing on an unprovable deadline.`;
+      await emit(ledger.flag(holdId, detail));
+      return { holdId, outcome: "indeterminate", detail };
+    }
     if (deadline !== undefined && clock.now() <= deadline) {
       const detail =
         `chain shows the authorization unused, but it remains submittable until ` +

@@ -185,5 +185,11 @@ function readAuthorization(payload: Record<string, unknown>): Eip3009Authorizati
   ) {
     return undefined;
   }
+  // validBefore must parse to a finite number of seconds. A malformed value
+  // becomes NaN downstream, and a NaN deadline makes the reconciler's release
+  // rule fail unsafe (`now <= NaN` is false → release). Refuse to read the
+  // authorization rather than admit a deadline we cannot reason about — the hold
+  // then stays nonce-less and the reconciler flags it instead of releasing.
+  if (!Number.isFinite(Number(o["validBefore"]))) return undefined;
   return { from: o["from"], validBefore: o["validBefore"], nonce: o["nonce"] };
 }

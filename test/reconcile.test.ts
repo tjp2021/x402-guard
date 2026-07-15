@@ -110,6 +110,26 @@ describe("a payment that goes quiet is looked up, not guessed at", () => {
     expect(l.committed(policy, past).get("daily-cap")).toBe(0n); // handed back on proof
   });
 
+  it("NEVER releases on a non-finite validBefore — an unprovable deadline holds", async () => {
+    // The one place the design cannot fail unsafe. A malformed validBefore
+    // coerced to NaN makes `now <= NaN` false, which would otherwise fall through
+    // to release a still-submittable authorization — the double-spend. A deadline
+    // we cannot reason about is treated like one not yet reached: hold and flag.
+    const l = new Ledger();
+    l.hold(quote(), NOW);
+    l.attachAuthorization("hold-1", "0xnonce1", PAYER, NaN); // corrupted deadline
+
+    const results = await sweep({
+      ledger: l,
+      chain: chainSaying({ found: false }),
+      clock: clock(NOW + STALE_AFTER),
+      staleAfterMs: STALE_AFTER,
+    });
+
+    expect(results[0]!.outcome).toBe("indeterminate"); // flagged, NOT released
+    expect(committed(l)).toBe(usd("1.80")); // budget stays held — wrong in the safe direction
+  });
+
   it("NEVER releases when the chain cannot answer — the hold stays committed", async () => {
     // The dangerous case. An unreachable RPC is not evidence that the payment
     // failed. Handing the budget back here is how an agent spends the same

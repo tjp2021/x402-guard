@@ -156,6 +156,19 @@ describe("a nonce without validBefore is refused — it would double-spend", () 
     await writeFile(path, line + "\n", "utf8");
     await expect(new JsonlLedgerStore(path).readAll()).rejects.toThrow(/validBefore/);
   });
+
+  it("refuses a line whose validBefore is not a finite number", async () => {
+    // A non-finite validBefore makes the reconciler's release rule fail unsafe
+    // (now <= NaN is false -> release a still-submittable authorization). Reject
+    // it at ingest rather than admit a deadline the reconciler cannot reason about.
+    const line = JSON.stringify({
+      holdId: "hold-1", status: "held", amount: "1800000", at: NOW,
+      quote: { amount: "1800000", asset: USDC, network: NET, payTo: SELLER, resource: "r" },
+      nonce: "0xabc", payer: "0xPAYER", validBefore: "not-a-number",
+    });
+    await writeFile(path, line + "\n", "utf8");
+    await expect(new JsonlLedgerStore(path).readAll()).rejects.toThrow(/non-finite validBefore/);
+  });
 });
 
 describe("a corrupt ledger is refused, not silently skipped", () => {

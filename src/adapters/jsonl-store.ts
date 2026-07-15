@@ -155,6 +155,12 @@ function decode(l: Line): Entry {
   if (l.nonce !== undefined && l.validBefore === undefined) {
     throw new Error(`entry ${l.holdId} carries a nonce but no validBefore`);
   }
+  // A non-finite validBefore makes the reconciler's release rule fail unsafe
+  // (now <= NaN is false → release a still-submittable authorization). Refuse it
+  // at ingest, the same way a negative amount is refused.
+  if (l.validBefore !== undefined && !Number.isFinite(Number(l.validBefore))) {
+    throw new Error(`entry ${l.holdId} has a non-finite validBefore ${JSON.stringify(l.validBefore)}`);
+  }
   const quote: Quote = {
     amount: BigInt(l.quote.amount),
     asset: l.quote.asset,
