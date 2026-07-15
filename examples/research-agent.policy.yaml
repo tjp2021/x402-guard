@@ -1,0 +1,43 @@
+# A spending policy for an AI research agent that pays for API calls over x402.
+# This is the whole control surface — no code, no expressions. If you can read
+# this, you can audit what the agent is allowed to spend.
+
+policy: research-agent-daily
+version: 1
+
+# What money is. Any quote in a different token or on a different network —
+# including mainnet — is denied.
+asset:
+  symbol: USDC
+  address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  # USDC on Base Sepolia
+  network: eip155:84532                                    # Base Sepolia testnet
+  decimals: 6
+
+# Who authorized the agent, and until when.
+mandate:
+  holder: research-team
+  agent: research-agent-01
+  expires: 2026-12-31T00:00:00Z
+
+# The only sellers the agent may pay. Anyone not listed is denied.
+payees:
+  allow:
+    - name: Example Data API
+      address: "0xA1b2C3d4E5f60718293A4b5C6d7E8f9012345678"
+    - name: Search Provider
+      address: "0xE5f6070809A0b1C2d3E4f5061728394A5b6C7788"
+
+payments:
+  max_per_payment: "2.00"        # no single payment over $2.00
+  require_approval_over: "0.50"  # anything $0.50+ needs a human's yes first
+
+# Cumulative caps. This is what the stateless per-transaction hook cannot do:
+# a payment that is under max_per_payment can still be denied here because the
+# earlier payments this window already spent the budget.
+budgets:
+  - name: daily-cap
+    window: rolling-24h
+    limit: "5.00"
+
+velocity:
+  max_payments_per_hour: 10

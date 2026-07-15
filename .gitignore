@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.*
+*.log
+
+# Internal planning artifacts, not part of the published library.
+plans/
