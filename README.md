@@ -154,7 +154,7 @@ What exists and is tested:
   Verified against the installed `@x402/core`/`@x402/evm` types and
   integration-tested through the full hook lifecycle, including the
   split-purchase attack caught through the actual hooks;
-- 122 tests. The safety-critical ones are mutation-checked by hand — the test is
+- 124 tests. The safety-critical ones are mutation-checked by hand — the test is
   confirmed to fail when the code it guards is deliberately broken, because a
   test that cannot fail is not a test.
 
@@ -220,7 +220,7 @@ import directly from `dist/` after building).
 
 ```sh
 npm ci
-npm test          # 122 tests
+npm test          # 124 tests
 npm run typecheck  # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 npm run build      # emit dist/
 ```
