@@ -4,6 +4,18 @@ A spending policy that holds across an agent's whole session — not one
 transaction at a time.
 
 [![ci](https://github.com/tjp2021/x402-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/tjp2021/x402-guard/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
+
+## Contents
+
+- [The problem](#the-problem)
+- [What it does](#what-it-does) · [What it does not do](#what-it-does-not-do)
+- [Threat model](#threat-model)
+- [Status](#status)
+- [Install](#install) · [Develop](#develop)
+- [Prior art](#prior-art) · [Upstream](#upstream)
+- [Contributing](#contributing) · [License](#license)
 
 ## The problem
 
@@ -55,6 +67,9 @@ budgets:
 velocity:
   max_payments_per_hour: 10
 ```
+
+> Not on npm yet — install from source ([Install](#install)). The `"x402-guard"`
+> import below resolves once you've built and linked the package locally.
 
 ```ts
 import { Guard, loadPolicyFile, JsonlLedgerStore, ViemChainReader } from "x402-guard";
@@ -132,7 +147,7 @@ What exists and is tested:
   Verified against the installed `@x402/core`/`@x402/evm` types and
   integration-tested through the full hook lifecycle, including the
   split-purchase attack caught through the actual hooks;
-- 116 tests. The safety-critical ones are mutation-checked by hand — the test is
+- 117 tests. The safety-critical ones are mutation-checked by hand — the test is
   confirmed to fail when the code it guards is deliberately broken, because a
   test that cannot fail is not a test.
 
@@ -175,17 +190,39 @@ Two open items on the x402 tracker motivate this work:
   does **not** implement that (it does not fingerprint or sign responses); the
   reconciliation and verdict trail here are a substrate a receipt could build on.
 
+## Install
+
+Not published to npm yet. Install from source:
+
+```sh
+git clone https://github.com/tjp2021/x402-guard
+cd x402-guard
+npm ci
+npm run build
+```
+
+Requires Node ≥ 20. To use it from another local project, `npm link` it (or
+import directly from `dist/` after building).
+
 ## Develop
 
 ```sh
 npm ci
-npm test          # 116 tests
+npm test          # 117 tests
 npm run typecheck  # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 npm run build      # emit dist/
 ```
 
 Node ≥ 20. See [DECISIONS.md](./DECISIONS.md) for the design calls and the ones
 that were reversed.
+
+## Contributing
+
+Issues and PRs welcome. Run `npm test && npm run typecheck` before opening a PR.
+Two house rules, both from hard-won experience (see [DECISIONS.md](./DECISIONS.md)):
+new behavior needs a test that fails without it, and any safety-critical path is
+mutation-checked — the test is confirmed to go red when the code it guards is
+deliberately broken.
 
 ## License
 
