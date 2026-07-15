@@ -120,23 +120,27 @@ The pieces this is built to withstand, and where its edges are:
 
 ## Status
 
-**This is a reference implementation of the policy-and-reconciliation engine, not
-yet a drop-in x402 middleware.** What exists and is tested:
+What exists and is tested:
 
 - the stateful policy engine, authorization holds, and typed verdicts;
 - the on-chain reconciliation logic targeting Base Sepolia (settlement matched
-  to the exact authorization, not merely "a payment happened") — tested against
-  fakes, see below;
+  to the exact authorization, not merely "a payment happened");
 - a durable append-only ledger with crash recovery;
-- 112 tests. The safety-critical ones are mutation-checked by hand — the test is
+- **the x402 adapter** — `x402GuardHooks(guard)` wires the guard into
+  `@x402/core`'s real payment hooks (`onBeforePaymentCreation`,
+  `onAfterPaymentCreation`, `onPaymentResponse`, `onPaymentCreationFailure`).
+  Verified against the installed `@x402/core`/`@x402/evm` types and
+  integration-tested through the full hook lifecycle, including the
+  split-purchase attack caught through the actual hooks;
+- 116 tests. The safety-critical ones are mutation-checked by hand — the test is
   confirmed to fail when the code it guards is deliberately broken, because a
   test that cannot fail is not a test.
 
-**Not yet built:** the x402 adapter that wires `authorize()` into
-`onBeforePaymentCreation` and `attachAuthorization()` into
-`onAfterPaymentCreation`. The hooks and the ordering are designed; the glue is
-the next slice. Until then, `ViemChainReader` is exercised against fakes, not a
-live testnet run.
+**The one thing not yet demonstrated is a live on-chain transaction**, which
+needs a funded Base Sepolia wallet and a payable x402 endpoint — the wiring is
+proven by the integration tests, and [DEMO.md](./DEMO.md) is the one-command path
+to a real settlement once a testnet wallet is funded. The chain reader is
+exercised against fakes in the test suite (a live RPC is not hit in CI).
 
 ## Prior art
 
@@ -167,7 +171,7 @@ Two open items on the x402 tracker motivate this work:
 
 ```sh
 npm ci
-npm test          # 112 tests
+npm test          # 116 tests
 npm run typecheck  # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
 npm run build      # emit dist/
 ```
