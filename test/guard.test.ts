@@ -246,6 +246,34 @@ describe("a hold the chain could not resolve is retried, not stranded", () => {
   });
 });
 
+describe("an explicit undefined option does not disable the feature it configures", () => {
+  it("falls back to the default staleAfterMs — the sweep still runs", async () => {
+    // A JS caller (or a value read from JSON config) can pass staleAfterMs:
+    // undefined. If the defaults are spread BEFORE opts, that undefined
+    // overwrites the default, staleHolds compares against NaN, nothing is ever
+    // stale, and reconcile() silently no-ops — the headline feature, off.
+    const store = new FakeStore();
+    let now = NOW;
+    const guard = await Guard.open({
+      policy,
+      policyHash: "sha256:test",
+      store,
+      chain: chain({ found: true, transaction: "0xsettled" }),
+      clock: { now: () => now },
+      staleAfterMs: undefined,
+    } as unknown as Parameters<typeof Guard.open>[0]);
+
+    const auth = await guard.authorize(quote("2.00"));
+    await guard.attachAuthorization(auth.holdId!, `0x${"cd".repeat(32)}`, SELLER, NOW + 60 * 60 * 1000);
+
+    now = NOW + 11 * 60 * 1000; // past the 10-min default; NaN would never be stale
+
+    const swept = await guard.reconcile();
+    expect(swept).toHaveLength(1); // default applied, hold went stale and was swept
+    expect(swept[0]!.outcome).toBe("settled");
+  });
+});
+
 describe("restore does not reuse hold ids", () => {
   it("keeps the counter ahead of anything already in the log", async () => {
     const store = new FakeStore();

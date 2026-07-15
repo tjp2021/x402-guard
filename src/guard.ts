@@ -62,10 +62,16 @@ export class Guard {
   /** Rebuild from the durable log, then reconcile anything the last run left open. */
   static async open(opts: GuardOptions): Promise<Guard> {
     const ledger = Ledger.restore(await opts.store.readAll());
+    // Resolve the two tunables with `??`, not spread order. Spreading opts over
+    // the defaults lets an explicit `staleAfterMs: undefined` (a JS caller, or a
+    // value read from JSON) overwrite the default with undefined — staleHolds
+    // then compares against NaN, nothing is ever stale, and the sweep silently
+    // no-ops. `approvalTtlMs: undefined` fails safe (never satisfied), but this
+    // one fails open on the headline feature, so pin both.
     const guard = new Guard(ledger, {
-      staleAfterMs: 10 * 60 * 1000,
-      approvalTtlMs: 10 * 60 * 1000,
       ...opts,
+      staleAfterMs: opts.staleAfterMs ?? 10 * 60 * 1000,
+      approvalTtlMs: opts.approvalTtlMs ?? 10 * 60 * 1000,
     });
     await guard.reconcile();
     return guard;
