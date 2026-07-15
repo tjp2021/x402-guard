@@ -179,11 +179,13 @@ export class ViemChainReader implements ChainReader {
    * loud "unknown" that a human must resolve.
    *
    * The transfer is bound to the specific AuthorizationUsed log, not to "any
-   * matching transfer in the receipt". EIP-3009 `transferWithAuthorization`
-   * emits `Transfer` immediately before `AuthorizationUsed`, so this nonce's
-   * transfer is the token transfer with the greatest logIndex below this auth
-   * log's. Without that binding, a batched settlement of two of our own holds
-   * lets hold-A confirm on hold-B's transfer.
+   * matching transfer in the receipt". Circle's USDC (FiatTokenV2) marks the
+   * nonce used, THEN transfers — so `transferWithAuthorization` emits
+   * `AuthorizationUsed` first and the `Transfer` immediately after. This nonce's
+   * transfer is therefore the token transfer with the smallest logIndex ABOVE
+   * this auth log's. (Verified on Base Sepolia: auth at logIndex 40, transfer at
+   * 41.) Without that binding, a batched settlement of two of our own holds lets
+   * hold-A confirm on hold-B's transfer.
    */
   private async verifyTransfer(
     authLog: Log,
@@ -213,7 +215,11 @@ export class ViemChainReader implements ChainReader {
     }
 
     // The token transfer that this exact AuthorizationUsed settled: same token,
-    // and the closest transfer emitted before this auth log.
+    // and the closest transfer emitted AFTER this auth log. Circle's USDC emits
+    // AuthorizationUsed, then Transfer — so this nonce's transfer is the one with
+    // the smallest logIndex above this auth log's. In a batched settlement
+    // (Auth_A, Transfer_A, Auth_B, Transfer_B), "least above" pairs each auth
+    // with its own transfer.
     const authIndex = authLog.logIndex;
     const bound =
       authIndex === null
@@ -224,9 +230,9 @@ export class ViemChainReader implements ChainReader {
                 safeAddress(l.address) === expected.token &&
                 l.topics[0] === TRANSFER_TOPIC &&
                 l.logIndex !== null &&
-                l.logIndex < authIndex,
+                l.logIndex > authIndex,
             )
-            .sort((a, b) => (b.logIndex ?? 0) - (a.logIndex ?? 0))[0];
+            .sort((a, b) => (a.logIndex ?? 0) - (b.logIndex ?? 0))[0];
 
     const matches =
       bound !== undefined &&

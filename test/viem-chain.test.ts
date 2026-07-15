@@ -40,7 +40,7 @@ const transferLog = (over: Partial<{ address: string; from: string; to: string; 
     topic(over.to ?? SELLER),
   ],
   data: word(over.value ?? quote.amount),
-  logIndex: over.logIndex ?? 4,
+  logIndex: over.logIndex ?? 5,
 });
 
 interface FakeOpts {
@@ -82,14 +82,32 @@ const look = (o: FakeOpts = {}) =>
     heldAt: HELD_AT,
   });
 
-/** The AuthorizationUsed log for our nonce, at logIndex 5. */
-const authUsedLog = { transactionHash: TX, logIndex: 5 };
+/**
+ * The AuthorizationUsed log for our nonce, at logIndex 4 — below the Transfer.
+ * Circle's USDC emits AuthorizationUsed FIRST, then the Transfer (default
+ * logIndex 5), the ordering seen on real Base Sepolia settlements.
+ */
+const authUsedLog = { transactionHash: TX, logIndex: 4 };
 /** The authorization was used, and the settlement matches the quote. */
 const settled = { logs: [authUsedLog] };
 
 describe("confirming a payment requires that the RIGHT payment happened", () => {
   it("confirms when the settlement transfers the quoted amount to the quoted payee", async () => {
     expect(await look(settled)).toEqual({ found: true, transaction: TX });
+  });
+
+  it("binds the Transfer that sits AFTER the auth log — real USDC ordering", async () => {
+    // Regression. Circle's USDC (FiatTokenV2) emits AuthorizationUsed FIRST,
+    // then the Transfer — verified on Base Sepolia tx 0x82ba06be… (auth at
+    // logIndex 40, Transfer at 41). The reconciler once bound the transfer BELOW
+    // the auth log; against real settlements that matched nothing and returned
+    // 'unknown' — flagging the library's own proof payment instead of confirming
+    // it. This drives the exact on-chain ordering: auth at 40, its transfer at 41.
+    const status = await look({
+      logs: [{ transactionHash: TX, logIndex: 40 }],
+      receiptLogs: [transferLog({ logIndex: 41 })],
+    });
+    expect(status).toEqual({ found: true, transaction: TX });
   });
 
   it("REFUSES to confirm when the money went to someone else", async () => {
@@ -132,16 +150,17 @@ describe("confirming a payment requires that the RIGHT payment happened", () => 
   });
 
   it("binds to THIS nonce's transfer, not any matching transfer in a batched tx", async () => {
-    // The decoy: one tx settles two of our own authorizations. hold-A's
-    // AuthorizationUsed (logIndex 5) is preceded by hold-A's real transfer
-    // (logIndex 4, to a stranger — params were manipulated). hold-B's matching
-    // transfer (to SELLER, correct) sits elsewhere in the receipt. A reader that
-    // scans for "any matching transfer" finds hold-B's and wrongly confirms
-    // hold-A. Binding to the transfer just below THIS auth log catches it.
+    // The decoy: one tx settles two of our own authorizations. Real USDC emits
+    // AuthorizationUsed then Transfer, so hold-A's auth (logIndex 4) is followed
+    // immediately by hold-A's real transfer (logIndex 5, to a stranger — params
+    // were manipulated). hold-B's matching transfer (to SELLER, correct) sits
+    // later in the receipt. A reader that scans for "any matching transfer" finds
+    // hold-B's and wrongly confirms hold-A. Binding to the transfer just above
+    // THIS auth log catches it.
     const status = await look({
-      logs: [authUsedLog], // our nonce's AuthorizationUsed at logIndex 5
+      logs: [authUsedLog], // our nonce's AuthorizationUsed at logIndex 4
       receiptLogs: [
-        transferLog({ to: STRANGER, logIndex: 4 }), // OUR nonce settled: wrong dest
+        transferLog({ to: STRANGER, logIndex: 5 }), // OUR nonce settled: wrong dest
         transferLog({ to: SELLER, logIndex: 9 }),   // a DIFFERENT nonce's correct transfer
       ],
     });
