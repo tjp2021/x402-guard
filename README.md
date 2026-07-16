@@ -1,58 +1,114 @@
 # x402-guard
 
-A spending policy that holds across an agent's whole session — not one
-transaction at a time.
+A stateful spending guard for x402 agents: cumulative budgets, durable
+authorization holds, and proof-bearing settlement recovery.
 
 [![ci](https://github.com/tjp2021/x402-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/tjp2021/x402-guard/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 
-## Contents
+> Pre-release: not published to npm yet. Version 0.1 is deliberately limited to
+> the `exact` EIP-3009 scheme with Circle USDC on Base Sepolia.
 
-- [The problem](#the-problem)
-- [What it does](#what-it-does) · [What it does not do](#what-it-does-not-do)
-- [Threat model](#threat-model)
-- [Status](#status)
-- [Install](#install) · [Develop](#develop)
-- [Prior art](#prior-art) · [Upstream](#upstream)
-- [Contributing](#contributing) · [License](#license)
+## Why it exists
 
-## The problem
+An x402 pre-payment hook sees one quote at a time. It can reject a single $6
+payment, but it cannot see three individually valid $2 payments crossing a $5
+session budget. `x402-guard` adds that missing cumulative state and reserves
+budget before a payload is signed.
 
-x402 lets an AI agent pay for things over HTTP. The SDK's pre-payment hook
-(`onBeforePaymentCreation`) can veto a payment — but it is **stateless**. It sees
-one quote at a time, so it can enforce "no single payment over $2" and nothing
-more.
+The difficult part is recovery. A signed EIP-3009 authorization may still settle
+after a timeout or facilitator error. This library therefore keeps ambiguous
+holds committed. Once signed authority has been attached, it releases that hold
+only when a trusted Base Sepolia RPC reports finalized USDC state with the nonce
+unused and chain time strictly past `validBefore`. Before attachment, local state
+cannot prove that signing did not race or already occur, so v0.1 exposes no
+proof-free release method, keeps the hold committed, and blocks another payment
+from entering the signing gap at the same time.
 
-That is not a budget. An agent told "$2 max per payment, $5 max per day" can
-spend $2, then $2, then $2, then $2 — each payment passes the per-transaction
-check, and the day's spend is $8. Split an over-budget purchase into under-limit
-charges and a per-transaction limit never notices.
+## Safety boundary
 
-The failure is not hypothetical: a runaway loop, a compromised tool, or a
-price-gouging server all reach the same place — money out the door that no single
-check objected to.
+Version 0.1 provides:
 
-## What it does
+- an immutable, hash-coupled policy loaded from YAML/JSON;
+- per-payment caps, allowlisted payees, rolling budgets, velocity limits, and a
+  caller-attested approval tier;
+- serialized evaluate-and-hold, with append + fsync before an ALLOW is returned;
+- one in-flight signing gap at a time: a durable `held` event blocks every later
+  authorization until an exact authorization or generic exact-signer outcome is
+  durably recorded;
+- pre-sign requirements pinned to the USDC EIP-712 domain (`USDC`, version `2`),
+  EIP-3009 transfer selection (absent or `eip3009`, never Permit2), and a positive
+  safe-integer timeout of at most one hour;
+- exact Base Sepolia chain identity, finalized-block support, nonempty contract
+  code at the pinned USDC address, `authorizationState`, nonce, receipt, and
+  Transfer verification;
+- unresolved holds that never age out of budget, while verified spend ages from
+  its chain-derived settlement time;
+- an irreversible authority-exposure latch: an unreadable or economically
+  mismatched signed payload blocks every later authorization, including after
+  reopen;
+- a strict versioned JSONL ledger containing resource hashes and bounded reason
+  codes rather than raw URLs, errors, or notes;
+- immutable verdicts, events, and history snapshots.
 
-`x402-guard` adds the cumulative state the hook cannot hold. You write a policy;
-it tracks spend across the whole session with authorization holds, and produces a
-typed verdict — `allow`, `deny`, or `require_approval` — that names the clause
-that decided it.
+It does not provide:
+
+- a wallet, facilitator, payment protocol, hosted service, or mainnet path;
+- hard enforcement against a process that can rewrite its own host code;
+- independent proof that a human approved a payment—`attestCallerApproval`
+  records only an in-process caller assertion;
+- multi-process locking. One process owns one ledger in a trusted, stable parent
+  directory on POSIX; the leaf file is treated as adversarial;
+- Byzantine-RPC resistance. The configured RPC provider is trusted to report the
+  canonical finalized Base Sepolia chain; identity/finality/code checks catch
+  misconfiguration and ordinary failure, not a provider fabricating chain data;
+- delivery or response attestation. It proves spending-policy and settlement
+  facts, not that the purchased resource was correct.
+
+Pair it with wallet/on-chain spend permissions when the agent must be unable to
+bypass its own limits.
+
+The trusted computing base is explicit: the exact-scheme signer and hook
+lifecycle must create at most one authorization per before-hook attempt and bind
+its scheme, network, asset, value, and payee exactly to the selected
+requirements. Unknown signer metadata, Permit2, and longer authorization windows
+are rejected before a hold. `LedgerStore` must durably append before resolving; `ChainReader`
+must faithfully derive its terminal results from the configured chain; and
+`Clock` must provide trustworthy policy and budget time. The included JSONL and
+viem adapters implement those contracts under the single-writer and trusted-RPC
+assumptions above. A custom implementation of those ports becomes part of the
+security boundary; TypeScript cannot prove its I/O behavior. Runtime versions of
+the x402 SDK and viem are pinned because the v0.1 safety analysis depends on
+their exact hook order, payload shape, signing route, and RPC behavior.
+
+## Install from source
+
+```sh
+git clone https://github.com/tjp2021/x402-guard
+cd x402-guard
+npm ci
+npm run build
+```
+
+Node 20 or newer is required. The package remains unpublished until its exact
+tarball receives explicit release approval. From a consuming project, install
+the built checkout with `npm install /absolute/path/to/x402-guard`.
+
+## Policy
 
 ```yaml
-# examples/research-agent.policy.yaml — the whole control surface, no code.
 policy: research-agent-daily
 version: 1
 asset:
   symbol: USDC
-  address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  # USDC, Base Sepolia
+  address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
   network: eip155:84532
   decimals: 6
 mandate:
   holder: research-team
   agent: research-agent-01
-  expires: 2026-12-31T00:00:00Z
+  expires: 2030-12-31T00:00:00Z
 payees:
   allow:
     - name: Search Provider
@@ -63,179 +119,130 @@ payments:
 budgets:
   - name: daily-cap
     window: rolling-24h
-    limit: "5.00"          # cumulative — this is what a per-transaction cap cannot do
+    limit: "5.00"
 velocity:
   max_payments_per_hour: 10
 ```
 
-> Not on npm yet — install from source ([Install](#install)). The `"x402-guard"`
-> import below resolves once you've built and linked the package locally.
+The loader rejects unknown keys and any rail other than the fixed Base Sepolia
+USDC profile.
+
+## Open a Guard
 
 ```ts
-import { Guard, loadPolicyFile, JsonlLedgerStore, ViemChainReader } from "x402-guard";
+import {
+  Guard,
+  JsonlLedgerStore,
+  ViemChainReader,
+  loadPolicyFile,
+} from "x402-guard";
 
-const { policy, hash } = await loadPolicyFile("./policy.yaml", Date.now());
+const loadedPolicy = await loadPolicyFile("./policy.yaml", Date.now());
+const rpcUrl = process.env["BASE_SEPOLIA_RPC_URL"];
+const ledgerPath = process.env["X402_GUARD_LEDGER_PATH"];
+if (!ledgerPath) throw new Error("set X402_GUARD_LEDGER_PATH outside the repository");
+const chain = rpcUrl
+  ? new ViemChainReader({ rpcUrl })
+  : new ViemChainReader();
 
 const guard = await Guard.open({
-  policy,
-  policyHash: hash,
-  store: new JsonlLedgerStore("./ledger.jsonl"),
-  chain: new ViemChainReader(),           // reads Base Sepolia
+  loadedPolicy,
+  store: new JsonlLedgerStore(ledgerPath),
+  chain,
   clock: { now: () => Date.now() },
 });
 
-let decision = await guard.authorize(quote);     // evaluate + reserve budget, atomically
+let authorization = await guard.authorize(quote);
 
-if (decision.decision === "require_approval") {  // over the approval threshold
-  guard.approve(quote);                          // a human's yes, bound to this quote
-  decision = await guard.authorize(quote);
-}
-
-if (decision.decision === "allow") {
-  // ... pay over x402, then:
-  await guard.attachAuthorization(decision.holdId, nonce, payer, validBefore);
-  await guard.confirm(decision.holdId, txHash);
+if (authorization.decision === "require_approval") {
+  // Stop here. An operator or external control must make the real decision.
+  // Never call this merely because the Guard asked for approval.
+  const externalDecisionWasApproved = false; // replace with your trusted workflow
+  if (!externalDecisionWasApproved) throw new Error("payment not approved");
+  await guard.attestCallerApproval(quote);
+  authorization = await guard.authorize(quote);
 }
 ```
 
-The agent that wants $5.40 against a $5.00 cap, split into three $1.80 charges,
-gets its third payment **denied** — because the first two are remembered.
+An ALLOW includes a durable `holdId`. The preferred integration is the x402 hook
+adapter, which binds the signed authorization and routes every response through
+chain reconciliation:
 
-## What it does not do
+```ts
+import { x402GuardHooks } from "x402-guard";
 
-- It is **not** a wallet, a payment protocol, or a facilitator. It sits beside
-  the x402 client and decides.
-- It is **advisory containment, not hard enforcement.** The guard runs in-process
-  with the agent; an agent that can write to the host can tamper with its own
-  ledger. It is a seatbelt, not a cage — pair it with on-chain spend permissions
-  (Coinbase CDP / ERC-7715) for enforcement the agent cannot reach.
-- **Single writer only.** One ledger file, one process. Two processes over one
-  file each enforce the full cap independently and together spend twice.
-- **Testnet.** The chain reader targets Base Sepolia. No mainnet path exists in
-  the code.
+const hooks = x402GuardHooks(guard);
 
-## Threat model
-
-The pieces this is built to withstand, and where its edges are:
-
-- **The x402 server is untrusted.** A hostile server quoting 100x the price is
-  denied by the per-payment cap; the quote's asset and network are pinned, so a
-  quote in a different token or on mainnet is denied outright.
-- **The quote is untrusted.** A negative amount cannot mint budget; a malformed
-  address cannot defeat the allowlist. Both are denied at the boundary.
-- **The facilitator is untrusted for evidence — in reconciliation.** When a hold
-  goes quiet, reconciliation reads settlement from the chain, not the
-  facilitator's index (the answer to payments that settle but never get indexed).
-  On the happy path, though, the adapter confirms a hold from the facilitator's
-  success response without an inline chain check. That is fail-safe — a false
-  success keeps the budget committed, it never frees it — but such a `settled`
-  entry is not independently verified until reconciliation or `npm run
-  verify:live` runs against it. The `verifyTransfer` that does the verifying is
-  the same code either path uses; wiring it inline on every settlement is a small
-  extension, not a redesign. Stated plainly so the claim is not oversold.
-- **A signed authorization is a bearer instrument.** It is not released until it
-  can no longer be submitted (`validBefore`), and a hold whose payload may have
-  been signed is never auto-released.
-- **The agent is untrusted with respect to policy.** Policy is enforced outside
-  the agent; an agent cannot talk the gate into a larger limit. But see "advisory
-  containment" above — this is the boundary, stated plainly.
-
-## Status
-
-What exists and is tested:
-
-- the stateful policy engine, authorization holds, and typed verdicts;
-- the on-chain reconciliation logic targeting Base Sepolia (settlement matched
-  to the exact authorization, not merely "a payment happened");
-- a durable append-only ledger with crash recovery;
-- **the x402 adapter** — `x402GuardHooks(guard)` wires the guard into
-  `@x402/core`'s real payment hooks (`onBeforePaymentCreation`,
-  `onAfterPaymentCreation`, `onPaymentResponse`, `onPaymentCreationFailure`).
-  Verified against the installed `@x402/core`/`@x402/evm` types and
-  integration-tested through the full hook lifecycle, including the
-  split-purchase attack caught through the actual hooks;
-- 124 tests. The safety-critical ones are mutation-checked by hand — the test is
-  confirmed to fail when the code it guards is deliberately broken, because a
-  test that cannot fail is not a test.
-
-**Demonstrated end to end on Base Sepolia.** `npm run demo` stands up a local
-x402 server and pays it through the guard; the payment settles on-chain, and a
-second payment to a seller the policy does not allow is blocked before signing —
-no money moves. A real run:
-
-- allowed payment settled:
-  [`0x82ba06be…`](https://sepolia.basescan.org/tx/0x82ba06be4ad379fc4f61e14533b4812bfff366060e9c63368dc435a1249a5ce2)
-  — 0.01 USDC moved from payer to the configured payee. (The demo pays the burn
-  address `0x…dEaD`, so it's a real on-chain USDC settlement with no counterparty
-  to fund — anyone can reproduce it.)
-- non-allowlisted payment: **denied by the guard, 0 USDC moved.**
-
-See [DEMO.md](./DEMO.md) to reproduce. The chain reader is exercised against
-fakes in the test suite (no live RPC in CI). `npm run verify:live` runs the real
-`ViemChainReader` against that settlement on Base Sepolia and confirms it
-reconciles — matching the `AuthorizationUsed` log for the nonce to the paired
-`Transfer`'s sender, recipient, and amount — so the on-chain path is checked on
-real data, not only fakes.
-
-## Prior art
-
-- [`presidio-hardened-x402`](https://github.com/presidio-v/presidio-hardened-x402)
-  — the closest neighbor: declarative spend policy for x402 in Python, with
-  daily limits and Redis state. x402-guard differs in being TypeScript-native
-  (x402's own SDK ecosystem), returning a typed verdict that names the deciding
-  clause rather than a pass/raise, and treating approval as a first-class verdict.
-- **Coinbase CDP Spend Permissions / ERC-7715 / Circle Agent Wallets** enforce
-  per-period allowances at the wallet, on-chain. Those are the hard-enforcement
-  layer this pairs with; this is the portable, self-hosted policy-and-evidence
-  layer above them.
-
-## Upstream
-
-Two open items on the x402 tracker motivate this work:
-
-- [x402#2823](https://github.com/x402-foundation/x402/issues/2823) — a
-  payment-integrity verifier that runs before settlement. This is what the gate
-  is: policy checked before money moves, and settlement matched to the exact
-  authorization afterward.
-- [x402#2833](https://github.com/x402-foundation/x402/issues/2833) — delivery /
-  receipt attestation binding a payment to its request and response. This library
-  does **not** implement that (it does not fingerprint or sign responses); the
-  reconciliation and verdict trail here are a substrate a receipt could build on.
-
-## Install
-
-Not published to npm yet. Install from source:
-
-```sh
-git clone https://github.com/tjp2021/x402-guard
-cd x402-guard
-npm ci
-npm run build
+// Register any other before hooks first. The Guard must be the final manual
+// before hook so nothing can abort or alter signer inputs after it reserves.
+client
+  .onBeforePaymentCreation(hooks.onBeforePaymentCreation)
+  // Register these before any other after/failure hooks. The after hook freezes
+  // the signed payload; the failure hook prevents recovered-payload bypasses.
+  .onAfterPaymentCreation(hooks.onAfterPaymentCreation)
+  .onPaymentCreationFailure(hooks.onPaymentCreationFailure)
+  .onPaymentResponse(hooks.onPaymentResponse);
 ```
 
-Requires Node ≥ 20. To use it from another local project, `npm link` it (or
-import directly from `dist/` after building).
+This ordering is part of the supported v0.1 security boundary: the Guard is the
+final manual before-creation hook and the first manual after-creation and
+creation-failure hook. Do not install a recovery hook before it. Server-declared
+payment extensions are rejected, and the supported exact signer creates at most
+one EIP-3009 authorization per before-hook attempt.
 
-## Develop
+## Lifecycle semantics
+
+| Observation | Durable effect | Terminal? |
+|---|---|---:|
+| Policy allows a quote | `held` after fsync; global in-flight lock | No |
+| Signed payload is readable | `authorization_attached` with bigint deadline | No |
+| Facilitator reports success | `settlement_reported`; transaction is only a hint | No |
+| Trusted RPC reports finalized nonce + exact Transfer evidence | `settled` | Yes |
+| Trusted RPC reports finalized unused nonce after deadline | `released` | Yes |
+| Generic creation outcome is unknown | `indeterminate`; original quote remains committed and in-flight lock clears | No |
+| Signed payload is unreadable or mismatches the held economics | irreversible `indeterminate` exposure latch; all new authority stops | No |
+
+RPC errors, wrong chain, missing logs, stale/future local clocks, and malformed
+reader evidence are all nonterminal. A storage error faults the Guard; it will
+refuse new authority until a clean reopen replays the durable ledger.
+
+## Ledger and migration
+
+`JsonlLedgerStore` creates or repairs the leaf ledger to mode `0600`, refuses
+symlinks, hard links and non-regular files, verifies inode identity around I/O,
+and fsyncs both data and a newly created directory entry. Records are capped at
+16 KiB and the v0.1 reader envelope at 64 MiB.
+
+Pre-v0.1 unversioned ledgers are intentionally not rewritten or guessed. Move
+the old file aside for manual review and start a new v0.1 ledger. Never discard
+an old ledger merely to free budget.
+
+The ledger contains public addresses, nonces, amounts, timestamps, policy and
+resource hashes, and transaction references. Those facts can still be sensitive
+in aggregate; keep both the file and its parent directory private.
+
+## Develop and verify
 
 ```sh
 npm ci
-npm test          # 124 tests
-npm run typecheck  # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
-npm run build      # emit dist/
+npm run verify
+npm pack --dry-run
 ```
 
-Node ≥ 20. See [DECISIONS.md](./DECISIONS.md) for the design calls and the ones
-that were reversed.
+CI uses fixtures and performs no wallet, payment, or live-network action. See
+[DEMO.md](./DEMO.md) for the separately invoked Base Sepolia demonstration and
+[DECISIONS.md](./DECISIONS.md) for the safety reversals behind the design.
 
-## Contributing
+## Security and limitations
 
-Issues and PRs welcome. Run `npm test && npm run typecheck` before opening a PR.
-Two house rules, both from hard-won experience (see [DECISIONS.md](./DECISIONS.md)):
-new behavior needs a test that fails without it, and any safety-critical path is
-mutation-checked — the test is confirmed to go red when the code it guards is
-deliberately broken.
+Please report suspected vulnerabilities through GitHub's private vulnerability
+reporting flow. See [SECURITY.md](./SECURITY.md) for the disclosure policy and
+[CHANGELOG.md](./CHANGELOG.md) for release notes.
+
+The project is motivated by x402's payment-integrity and delivery-attestation
+work. It implements the stateful pre-payment and settlement-evidence layer; it
+does not claim to implement response receipts or the entire x402 roadmap.
 
 ## License
 
-Apache-2.0.
+Apache-2.0. See [LICENSE](./LICENSE).
