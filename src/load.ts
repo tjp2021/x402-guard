@@ -16,13 +16,29 @@
 
 import { createHash } from "node:crypto";
 import { parseDecimal, AmountError } from "./amount.js";
+import { SETTLEMENT_PROFILE } from "./policy.js";
 import type { Policy, Budget, BudgetWindow, Payee } from "./policy.js";
 
 export class PolicyError extends Error {}
 
+const LOADED_POLICY: unique symbol = Symbol("x402-guard.LoadedPolicy");
+const loadedPolicies = new WeakSet<object>();
+
+/** A validated immutable policy and the hash derived from that exact value. */
+export interface LoadedPolicy {
+  readonly policy: Policy;
+  readonly hash: string;
+  readonly [LOADED_POLICY]: true;
+}
+
+export function isLoadedPolicy(value: unknown): value is LoadedPolicy {
+  return typeof value === "object" && value !== null && loadedPolicies.has(value);
+}
+
 const WINDOWS: readonly BudgetWindow[] = ["rolling-1h", "rolling-24h"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const CAIP2 = /^[a-z0-9-]+:[a-zA-Z0-9-]+$/;
+const UINT256_MAX = (1n << 256n) - 1n;
 
 /** The raw document shape, before validation. Everything is unknown until checked. */
 type Raw = Record<string, unknown>;
@@ -64,8 +80,8 @@ function str(v: unknown, path: string): string {
 }
 
 function int(v: unknown, path: string): number {
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
-    throw new PolicyError(`${path}: expected a non-negative integer`);
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) {
+    throw new PolicyError(`${path}: expected a non-negative safe integer`);
   }
   return v;
 }
@@ -78,16 +94,21 @@ function arr(v: unknown, path: string): unknown[] {
 function address(v: unknown, path: string): string {
   const s = str(v, path);
   if (!ADDRESS.test(s)) throw new PolicyError(`${path}: not a 0x address: ${s}`);
-  return s;
+  return s.toLowerCase();
 }
 
 function amount(v: unknown, path: string, decimals: number): bigint {
   const s = str(v, path);
   try {
-    return parseDecimal(s, decimals);
+    const parsed = parseDecimal(s, decimals);
+    if (parsed > UINT256_MAX) {
+      throw new PolicyError(`${path}: amount exceeds unsigned uint256 range`);
+    }
+    return parsed;
   } catch (e) {
     // Surface the real reason — "1.0000005 has 7 decimal places, exceeds scale
     // 6" is actionable; "invalid policy" is not.
+    if (e instanceof PolicyError) throw e;
     throw new PolicyError(`${path}: ${(e as AmountError).message}`);
   }
 }
@@ -106,7 +127,10 @@ function timestamp(v: unknown, path: string): number {
  * at the first payment — you want to know the policy is dead before the agent
  * starts, not when it tries to buy something.
  */
-export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: string } {
+export function loadPolicy(doc: unknown, now: number): LoadedPolicy {
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new PolicyError("now: expected a non-negative safe unix-millisecond integer");
+  }
   const root = only(doc, "policy", ["policy","version","asset","mandate","payees","payments","budgets","velocity"]);
 
   const assetRaw = only(root["asset"], "asset", ["symbol","address","network","decimals"]);
@@ -122,6 +146,21 @@ export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: s
     network,
     decimals,
   };
+  if (asset.network !== SETTLEMENT_PROFILE.network) {
+    throw new PolicyError(
+      `asset.network: version 0.1 supports only ${SETTLEMENT_PROFILE.network}`,
+    );
+  }
+  if (asset.address.toLowerCase() !== SETTLEMENT_PROFILE.asset.toLowerCase()) {
+    throw new PolicyError(
+      `asset.address: version 0.1 supports only Circle Base Sepolia USDC ${SETTLEMENT_PROFILE.asset}`,
+    );
+  }
+  if (asset.decimals !== SETTLEMENT_PROFILE.decimals) {
+    throw new PolicyError(
+      `asset.decimals: version 0.1 requires ${SETTLEMENT_PROFILE.decimals}`,
+    );
+  }
 
   const mandateRaw = only(root["mandate"], "mandate", ["holder","agent","expires"]);
   const expires = timestamp(mandateRaw["expires"], "mandate.expires");
@@ -160,8 +199,8 @@ export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: s
     decimals,
   );
   if (requireApprovalOver > maxPerPayment) {
-    // The approval tier would be unreachable: anything big enough to need a
-    // human is already denied by the per-payment cap. Dead policy, silently.
+    // The advisory approval tier would be unreachable: anything big enough to
+    // require caller attestation is already denied by the per-payment cap.
     throw new PolicyError(
       `payments.require_approval_over exceeds payments.max_per_payment — ` +
         `no payment could ever reach the approval tier`,
@@ -212,7 +251,7 @@ export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: s
     throw new PolicyError("velocity.max_payments_per_hour: 0 would block every payment");
   }
 
-  const policy: Policy = {
+  const policy: Policy = deepFreeze({
     name: str(root["policy"], "policy"),
     version: int(root["version"], "version"),
     asset,
@@ -221,9 +260,15 @@ export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: s
     payments: { maxPerPayment, requireApprovalOver },
     budgets,
     velocity: { maxPaymentsPerHour },
-  };
+  });
 
-  return { policy, hash: hashPolicy(doc) };
+  const loaded = deepFreeze({
+    policy,
+    hash: hashPolicy(policy),
+    [LOADED_POLICY]: true as const,
+  });
+  loadedPolicies.add(loaded);
+  return loaded;
 }
 
 /**
@@ -232,16 +277,23 @@ export function loadPolicy(doc: unknown, now: number): { policy: Policy; hash: s
  * Canonical form: keys sorted recursively, no whitespace. Reformatting the file
  * or reordering its keys does not change the hash; changing a limit does.
  */
-export function hashPolicy(doc: unknown): string {
-  const digest = createHash("sha256").update(canonicalize(doc)).digest("hex");
+export function hashPolicy(policy: Policy): string {
+  const digest = createHash("sha256").update(canonicalize(policy)).digest("hex");
   return `sha256:${digest}`;
 }
 
 function canonicalize(v: unknown): string {
+  if (typeof v === "bigint") return JSON.stringify(v.toString());
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return `[${v.map(canonicalize).join(",")}]`;
   const entries = Object.entries(v as Raw)
     .filter(([, val]) => val !== undefined)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return `{${entries.map(([k, val]) => `${JSON.stringify(k)}:${canonicalize(val)}`).join(",")}}`;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }

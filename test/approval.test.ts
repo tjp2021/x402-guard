@@ -1,146 +1,122 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Guard } from "../src/guard.js";
-import type { Policy, Quote } from "../src/policy.js";
-import type { ChainReader, Clock, LedgerStore } from "../src/ports.js";
-import type { Entry } from "../src/ledger.js";
-import { parseDecimal } from "../src/amount.js";
+import { loadPolicy } from "../src/load.js";
+import type { Quote } from "../src/policy.js";
+import {
+  MemoryStore,
+  NOW,
+  PAYER,
+  TestChain,
+  TestClock,
+  policyDocument,
+  quote,
+} from "./core-fixtures.js";
 
-const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
-const NET = "eip155:84532";
-const SELLER = "0xE5f6000000000000000000000000000000007788";
-const NOW = Date.UTC(2026, 6, 14, 12, 0, 0);
-const usd = (s: string) => parseDecimal(s, 6);
+function approvalPolicy(maxPaymentsPerHour = 10) {
+  const document = policyDocument() as ReturnType<typeof policyDocument> & {
+    payments: { max_per_payment: string; require_approval_over: string };
+    budgets: Array<{ name: string; window: string; limit: string }>;
+    velocity: { max_payments_per_hour: number };
+  };
+  document.payments.max_per_payment = "2.00";
+  document.payments.require_approval_over = "0.50";
+  document.budgets[0]!.limit = "5.00";
+  document.budgets[1]!.limit = "5.00";
+  document.velocity.max_payments_per_hour = maxPaymentsPerHour;
+  return loadPolicy(document, NOW);
+}
 
-const policy: Policy = {
-  name: "p",
-  version: 1,
-  asset: { symbol: "USDC", address: USDC, network: NET, decimals: 6 },
-  mandate: { holder: "research-team", agent: "a", expires: Date.UTC(2026, 7, 1) },
-  payees: [{ name: "Seller", address: SELLER }],
-  // Approval kicks in at $0.50; per-payment cap $2.00.
-  payments: { maxPerPayment: usd("2.00"), requireApprovalOver: usd("0.50") },
-  budgets: [{ name: "daily-cap", window: "rolling-24h", limit: usd("5.00") }],
-  velocity: { maxPaymentsPerHour: 10 },
-};
+async function open(
+  clock = new TestClock(),
+  approvalTtlMs?: number,
+  maxPaymentsPerHour = 10,
+) {
+  return Guard.open({
+    loadedPolicy: approvalPolicy(maxPaymentsPerHour),
+    store: new MemoryStore(),
+    chain: new TestChain(),
+    clock,
+    ...(approvalTtlMs === undefined ? {} : { approvalTtlMs }),
+  });
+}
 
-const quote = (amount: string, over: Partial<Quote> = {}): Quote => ({
-  amount: usd(amount),
-  asset: USDC,
-  network: NET,
-  payTo: SELLER,
-  resource: "https://api.example/report",
-  ...over,
-});
-
-let clockNow = NOW;
-const clock: Clock = { now: () => clockNow };
-const store = (): LedgerStore => {
-  const written: Entry[] = [];
-  return { append: async (e) => void written.push(e), readAll: async () => [...written] };
-};
-const chain: ChainReader = { findPayment: async () => ({ found: false }) };
-
-const open = () =>
-  Guard.open({ policy, policyHash: "sha256:test", store: store(), chain, clock });
-
-describe("the approval tier is a real gate, not a dead end", () => {
-  it("returns require_approval for a payment over the threshold, with no approval", async () => {
-    const g = await open();
-    const r = await g.authorize(quote("1.00"));
-    expect(r.decision).toBe("require_approval");
-    expect(r.holdId).toBeUndefined();
+describe("caller-attested advisory approval", () => {
+  it("returns require_approval without an attestation and writes no hold", async () => {
+    const guard = await open();
+    const result = await guard.authorize(quote(1_000_000n));
+    expect(result.decision).toBe("require_approval");
+    expect(result.holdId).toBeUndefined();
+    expect(guard.history()).toHaveLength(0);
   });
 
-  it("lets the SAME quote through once a human approves it — and holds the budget", async () => {
-    // The bug this closes: before approve() existed, an approval-tier payment
-    // repeated require_approval forever, so the only way to pay was to bypass
-    // the guard — which put the money outside the ledger and outside the budget.
-    const g = await open();
-    const q = quote("1.00");
+  it("allows the same quote once after the caller attests and reserves its budget", async () => {
+    const guard = await open();
+    const payment = quote(1_000_000n);
+    await guard.attestCallerApproval(payment);
 
-    expect((await g.authorize(q)).decision).toBe("require_approval");
-
-    g.approve(q);
-    const r = await g.authorize(q);
-
-    expect(r.decision).toBe("allow");
-    expect(r.holdId).toBeDefined();
-    // And it counts against the budget — the whole point of routing it through.
-    expect(g.history().some((e) => e.status === "held")).toBe(true);
+    const allowed = await guard.authorize(payment);
+    expect(allowed.decision).toBe("allow");
+    if (allowed.decision !== "allow") throw new Error("expected allowed fixture");
+    await guard.markCreationIndeterminate(allowed.holdId, "creation_outcome_unknown");
+    expect((await guard.authorize(payment)).decision).toBe("require_approval");
+    expect(guard.history()).toHaveLength(2);
   });
 
-  it("does not let a DIFFERENT quote through on someone else's approval", async () => {
-    // An approval binds to one quote. Approving a $1.00 payment must not
-    // authorize a $1.90 one, or a payment to a different payee.
-    const g = await open();
-    g.approve(quote("1.00"));
+  it("snapshots the attested quote and never transfers it to a different quote", async () => {
+    const guard = await open();
+    const mutable = { ...quote(1_000_000n) };
+    const attesting = guard.attestCallerApproval(mutable);
+    mutable.amount = 1_900_000n;
+    mutable.payTo = PAYER;
+    await attesting;
 
-    expect((await g.authorize(quote("1.90"))).decision).toBe("require_approval");
-    expect(
-      (await g.authorize(quote("1.00", { payTo: "0x1111111111111111111111111111111111111111" }))).decision,
-    ).toBe("deny"); // different payee: not allowlisted
+    expect((await guard.authorize(quote(1_900_000n))).decision).toBe("require_approval");
+    expect((await guard.authorize({ ...quote(1_000_000n), payTo: PAYER })).decision)
+      .toBe("deny");
+    expect((await guard.authorize(quote(1_000_000n))).decision).toBe("allow");
   });
 
-  it("consumes the approval — one yes authorizes one payment, no replay", async () => {
-    const g = await open();
-    const q = quote("1.00");
-    g.approve(q);
-
-    expect((await g.authorize(q)).decision).toBe("allow");
-    // Second attempt at the same quote: the approval is spent.
-    expect((await g.authorize(q)).decision).toBe("require_approval");
-  });
-
-  it("burns an approval spent on a DENY — no silent auto-authorize once the block clears", async () => {
-    // The gap this closes: an approval is consumed only when it produces an
-    // ALLOW. If the approved quote is denied for another reason (budget full,
-    // velocity), a naive guard leaves the 'yes' in the map until its TTL — and
-    // the moment the blocking condition clears, the next authorize() of the same
-    // quote fires the payment on a human decision that, when it was given, was
-    // refused. For a spending guard, a yes is spent by the attempt, not banked.
-    const g = await open();
-    const q = quote("1.00"); // approval-tier
-
-    // Fill the $5.00 daily budget to $4.41 with sub-threshold payments (no
-    // approval, under the velocity cap), so the approved $1.00 is over budget.
-    const holds: string[] = [];
-    for (let i = 0; i < 9; i++) {
-      const r = await g.authorize(quote("0.49"));
-      expect(r.decision).toBe("allow");
-      holds.push(r.holdId!);
+  it("burns an attestation on a denied attempt instead of banking it", async () => {
+    const clock = new TestClock();
+    const guard = await open(clock, undefined, 2);
+    for (let index = 0; index < 2; index += 1) {
+      const authorization = await guard.authorize(quote(490_000n));
+      expect(authorization.decision).toBe("allow");
+      if (authorization.decision !== "allow") throw new Error("expected allowed fixture");
+      await guard.markCreationIndeterminate(
+        authorization.holdId,
+        "creation_outcome_unknown",
+      );
     }
 
-    // The human approves the $1.00 — but right now it's over budget and denied.
-    g.approve(q);
-    expect((await g.authorize(q)).decision).toBe("deny");
-
-    // Budget frees (two never-signed holds abandoned). No fresh approval given.
-    await g.abandon(holds[0]!, "not signed");
-    await g.abandon(holds[1]!, "not signed");
-
-    // The stale 'yes' must NOT authorize it now — a new human decision is needed.
-    expect((await g.authorize(q)).decision).toBe("require_approval");
+    const approved = quote(1_000_000n);
+    await guard.attestCallerApproval(approved);
+    expect((await guard.authorize(approved)).decision).toBe("deny");
+    clock.value += 60 * 60 * 1000 + 1;
+    expect((await guard.authorize(approved)).decision).toBe("require_approval");
   });
 
-  it("does not honor an expired approval", async () => {
-    const g = await Guard.open({
-      policy,
-      policyHash: "sha256:test",
-      store: store(),
-      chain,
-      clock,
-      approvalTtlMs: 5 * 60 * 1000, // 5 min
-    });
-    const q = quote("1.00");
-    g.approve(q); // granted at NOW, valid until NOW + 5min
-
-    clockNow = NOW + 6 * 60 * 1000; // 6 min later
-    expect((await g.authorize(q)).decision).toBe("require_approval");
-    clockNow = NOW; // reset for other tests
+  it("does not honor an expired attestation", async () => {
+    const clock = new TestClock();
+    const guard = await open(clock, 5 * 60 * 1000);
+    const payment = quote(1_000_000n);
+    await guard.attestCallerApproval(payment);
+    clock.value += 6 * 60 * 1000;
+    expect((await guard.authorize(payment)).decision).toBe("require_approval");
   });
 
-  it("still lets a below-threshold payment through with no approval at all", async () => {
-    const g = await open();
-    expect((await g.authorize(quote("0.49"))).decision).toBe("allow");
+  it("rejects approval-expiry safe-integer overflow", async () => {
+    const clock = new TestClock();
+    const ttl = Number.MAX_SAFE_INTEGER - NOW;
+    const guard = await open(clock, ttl);
+    clock.value += 1;
+    await expect(guard.attestCallerApproval(quote(1_000_000n)))
+      .rejects.toThrow(/expiry exceeds safe integer/);
+    expect(guard.isFaulted()).toBe(false);
+  });
+
+  it("allows below-threshold payments without any attestation", async () => {
+    const guard = await open();
+    expect((await guard.authorize(quote(490_000n))).decision).toBe("allow");
   });
 });

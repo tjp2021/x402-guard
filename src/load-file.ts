@@ -10,12 +10,12 @@
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { loadPolicy, PolicyError } from "./load.js";
-import type { Policy } from "./policy.js";
+import type { LoadedPolicy } from "./load.js";
 
 export async function loadPolicyFile(
   path: string,
   now: number,
-): Promise<{ policy: Policy; hash: string }> {
+): Promise<LoadedPolicy> {
   let text: string;
   try {
     text = await readFile(path, "utf8");

@@ -1,203 +1,374 @@
-/**
- * The Guard: the composition root, and the only correct way to use this library.
- *
- * Everything else in `src/` is a primitive. This is the file where they are
- * assembled in the one order that makes the safety claims true, and it exists
- * because leaving that assembly to the caller was the library's biggest hole:
- *
- *   - `evaluate()` decides. `Ledger.hold()` reserves. If a caller does the
- *     natural thing —
- *
- *         const [a, b] = await Promise.all([gate(q), gate(q)]);
- *
- *     — both evaluate against the same remaining balance, both are allowed, and
- *     the budget is breached by the tool whose entire purpose is preventing that.
- *     `authorize()` closes the window by doing evaluate-and-hold in a single
- *     synchronous critical section, before any await can interleave.
- *
- *   - A hold that exists only in memory is a hold a crash erases, and an erased
- *     hold is budget the agent spends twice. `authorize()` persists the hold and
- *     awaits the write BEFORE returning an ALLOW the caller may act on.
- *
- * Node runs one turn of the event loop at a time, so the evaluate→hold sequence
- * below cannot be interleaved: there is no `await` between the two. That is the
- * whole mechanism, and it is why the ordering in this file is load-bearing
- * rather than stylistic.
- */
+/** Serialized, durable composition root. This is the supported payment API. */
 
 import { evaluate, quoteHash } from "./evaluate.js";
+import { isLoadedPolicy } from "./load.js";
+import type { LoadedPolicy } from "./load.js";
 import { Ledger } from "./ledger.js";
-import type { Entry } from "./ledger.js";
+import type { Entry, IndeterminateReason } from "./ledger.js";
+import { SETTLEMENT_PROFILE } from "./policy.js";
 import type { Policy, Quote, Verdict } from "./policy.js";
 import type { Clock, LedgerStore, ChainReader } from "./ports.js";
-import { sweep, type ReconcileResult } from "./reconcile.js";
+import {
+  reconcileHold as reconcileOne,
+  sweep,
+  type ReconcileOptions,
+  type ReconcileResult,
+} from "./reconcile.js";
 
 export interface GuardOptions {
-  policy: Policy;
-  policyHash: string;
-  store: LedgerStore;
-  chain: ChainReader;
-  clock: Clock;
-  /** How long a hold may stay quiet before the sweep asks the chain. */
-  staleAfterMs?: number;
-  /** How long a human approval stays valid once granted. Default 10 min. */
-  approvalTtlMs?: number;
+  readonly loadedPolicy: LoadedPolicy;
+  readonly store: LedgerStore;
+  readonly chain: ChainReader;
+  readonly clock: Clock;
+  /** Caller-attested approval lifetime. This is not independent human proof. */
+  readonly approvalTtlMs?: number;
 }
 
-/** An ALLOW carries the hold that reserved the budget for it. */
 export type Authorization =
-  | { verdict: Verdict; decision: "allow"; holdId: string }
-  | { verdict: Verdict; decision: "deny" | "require_approval"; holdId?: undefined };
+  | { readonly verdict: Verdict; readonly decision: "allow"; readonly holdId: string }
+  | {
+      readonly verdict: Verdict;
+      readonly decision: "deny" | "require_approval";
+      readonly holdId?: undefined;
+    };
+
+export class GuardFaultError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "GuardFaultError";
+  }
+}
+
+export class AuthorityExposureError extends Error {
+  constructor() {
+    super(
+      "new payment authority is blocked by a durable in-flight or signer-exposure latch",
+    );
+    this.name = "AuthorityExposureError";
+  }
+}
+
+interface ResolvedOptions {
+  readonly loadedPolicy: LoadedPolicy;
+  readonly store: LedgerStore;
+  readonly chain: ChainReader;
+  readonly clock: Clock;
+  readonly approvalTtlMs: number;
+}
+
+const UINT256_MAX = (1n << 256n) - 1n;
 
 export class Guard {
-  /** Granted approvals, by quote hash. In-memory: an approval is short-lived. */
   private readonly approvals = new Map<string, number>();
+  private fault?: GuardFaultError;
+  private operationTail: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly ledger: Ledger,
-    private readonly opts: Required<Pick<GuardOptions, "staleAfterMs" | "approvalTtlMs">> &
-      GuardOptions,
+    private readonly opts: ResolvedOptions,
   ) {}
 
-  /** Rebuild from the durable log, then reconcile anything the last run left open. */
   static async open(opts: GuardOptions): Promise<Guard> {
+    if (!isLoadedPolicy(opts.loadedPolicy)) {
+      throw new GuardFaultError(
+        "Guard.open requires the opaque LoadedPolicy returned by loadPolicy/loadPolicyFile",
+      );
+    }
+    validateProfile(opts.loadedPolicy.policy, opts.chain);
+    const approvalTtlMs = optionMs(opts.approvalTtlMs, 10 * 60 * 1000, "approvalTtlMs");
+    const openingNow = checkedNow(opts.clock);
+    checkedExpiry(openingNow, approvalTtlMs);
+
+    // A declared profile is not RPC evidence. The reader must prove readiness.
+    try {
+      await opts.chain.assertReady();
+    } catch {
+      throw new GuardFaultError("chain reader failed its readiness proof");
+    }
+
     const ledger = Ledger.restore(await opts.store.readAll());
-    // Resolve the two tunables with `??`, not spread order. Spreading opts over
-    // the defaults lets an explicit `staleAfterMs: undefined` (a JS caller, or a
-    // value read from JSON) overwrite the default with undefined — staleHolds
-    // then compares against NaN, nothing is ever stale, and the sweep silently
-    // no-ops. `approvalTtlMs: undefined` fails safe (never satisfied), but this
-    // one fails open on the headline feature, so pin both.
     const guard = new Guard(ledger, {
-      ...opts,
-      staleAfterMs: opts.staleAfterMs ?? 10 * 60 * 1000,
-      approvalTtlMs: opts.approvalTtlMs ?? 10 * 60 * 1000,
+      loadedPolicy: opts.loadedPolicy,
+      store: opts.store,
+      chain: opts.chain,
+      clock: opts.clock,
+      approvalTtlMs,
     });
     await guard.reconcile();
     return guard;
   }
 
   /**
-   * A human approves a payment that hit the approval tier.
-   *
-   * The approval binds to this exact quote and expires. It is single-use: it is
-   * consumed the moment an authorize() spends it, so one "yes" authorizes one
-   * payment and cannot be replayed for a second.
+   * Record the in-process caller's approval assertion for one quote and one use.
+   * This deliberately does not claim a human or external authority was verified.
    */
-  approve(quote: Quote): void {
-    this.approvals.set(quoteHash(quote), this.opts.clock.now() + this.opts.approvalTtlMs);
-  }
-
-  /**
-   * Decide, and reserve the budget in the same breath.
-   *
-   * On ALLOW the hold is placed and durably written before this resolves, so a
-   * concurrent call sees the reduced balance and a crash cannot lose it. The
-   * caller may pay only after this returns.
-   */
-  async authorize(quote: Quote): Promise<Authorization> {
-    const { policy, policyHash, clock, store } = this.opts;
-    const now = clock.now();
-    const qh = quoteHash(quote);
-    const expiresAt = this.approvals.get(qh);
-    const approval = expiresAt !== undefined ? { quoteHash: qh, expiresAt } : undefined;
-
-    // --- critical section: no await, so nothing can interleave --------------
-    const verdict = evaluate({
-      policy,
-      quote,
-      committed: this.ledger.committed(policy, now),
-      paymentsLastHour: this.ledger.paymentsLastHour(now),
-      policyHash,
-      now,
-      ...(approval ? { approval } : {}),
+  async attestCallerApproval(quote: Quote): Promise<void> {
+    this.assertHealthy();
+    const safe = snapshotQuote(quote);
+    await this.exclusive(async () => {
+      this.assertHealthy();
+      const now = checkedNow(this.opts.clock);
+      this.approvals.set(
+        quoteHash(safe),
+        checkedExpiry(now, this.opts.approvalTtlMs),
+      );
     });
-
-    if (verdict.decision !== "allow") {
-      // A "yes" is spent by the attempt, not banked. If an approval was present
-      // and the payment was still denied — over budget, over the velocity cap,
-      // outside the mandate window — burn it here too, inside the critical
-      // section. Otherwise the yes lingers until its TTL, and the moment the
-      // blocking condition clears, the next authorize() of the same quote would
-      // fire the payment on a human decision that, when given, was refused.
-      if (approval !== undefined) this.approvals.delete(qh);
-      return { verdict, decision: verdict.decision };
-    }
-
-    // An approval satisfied its purpose the instant it produced an ALLOW.
-    // Consuming it here — inside the same synchronous section, before any await
-    // — makes it single-use: a replayed authorize() for the same quote finds no
-    // approval and returns require_approval again.
-    this.approvals.delete(qh);
-
-    const entry = this.ledger.hold(quote, now);
-    // --- end critical section -----------------------------------------------
-
-    // The hold is already visible to any concurrent authorize() above. Now make
-    // it survive a crash, before the caller is told it may spend.
-    await store.append(entry);
-
-    return { verdict, decision: "allow", holdId: entry.holdId };
   }
 
-  /**
-   * The payload was signed. Bind its authorization to the hold.
-   *
-   * `validBefore` is the EIP-3009 deadline until which the facilitator may still
-   * submit it. The reconciler needs it to know when "not on chain yet" becomes
-   * "never will be" — releasing before then double-spends the budget.
-   */
+  async authorize(quote: Quote): Promise<Authorization> {
+    this.assertHealthy();
+    const safeQuote = snapshotQuote(quote);
+    return this.exclusive(async () => {
+      this.assertHealthy();
+      if (this.ledger.blocksNewAuthority()) throw new AuthorityExposureError();
+      const now = checkedNow(this.opts.clock);
+      const { policy, hash } = this.opts.loadedPolicy;
+      const qh = quoteHash(safeQuote);
+      const expiresAt = this.approvals.get(qh);
+      const approval = expiresAt === undefined ? undefined : { quoteHash: qh, expiresAt };
+      const verdict = freezeVerdict(
+        evaluate({
+          policy,
+          quote: safeQuote,
+          committed: this.ledger.committed(policy, now),
+          paymentsLastHour: this.ledger.paymentsLastHour(now),
+          policyHash: hash,
+          now,
+          ...(approval ? { approval } : {}),
+        }),
+      );
+
+      if (verdict.decision !== "allow") {
+        if (approval) this.approvals.delete(qh);
+        return Object.freeze({ verdict, decision: verdict.decision });
+      }
+
+      this.approvals.delete(qh);
+      const entry = this.ledger.proposeHold(safeQuote, hash, now);
+      await this.persistThenApply(entry);
+      return Object.freeze({ verdict, decision: "allow" as const, holdId: entry.holdId });
+    });
+  }
+
   async attachAuthorization(
     holdId: string,
     nonce: string,
     payer: string,
-    validBefore: number,
+    validBefore: bigint,
   ): Promise<void> {
-    await this.opts.store.append(
-      this.ledger.attachAuthorization(holdId, nonce, payer, validBefore),
-    );
-  }
-
-  /** The payment settled. */
-  async confirm(holdId: string, transaction: string): Promise<void> {
-    await this.opts.store.append(this.ledger.confirm(holdId, transaction));
-  }
-
-  /** The payment definitively did not happen. Never call this on silence. */
-  async release(holdId: string, note: string): Promise<void> {
-    await this.opts.store.append(this.ledger.release(holdId, note));
-  }
-
-  /**
-   * Affirm that no payload was ever signed for this hold, releasing its budget.
-   *
-   * The only safe release for a hold that never reached attachAuthorization —
-   * the caller is the one party that knows it never signed. Refused once a nonce
-   * is attached: then a payload exists and only the chain can resolve it.
-   */
-  async abandon(holdId: string, note: string): Promise<void> {
-    await this.opts.store.append(this.ledger.abandon(holdId, note));
-  }
-
-  /** Ask the chain about anything that went quiet. Safe to call on a timer. */
-  async reconcile(): Promise<ReconcileResult[]> {
-    const { chain, clock, staleAfterMs, store } = this.opts;
-    return sweep({
-      ledger: this.ledger,
-      chain,
-      clock,
-      staleAfterMs,
-      onEntry: (e: Entry) => store.append(e),
+    await this.exclusive(async () => {
+      this.assertHealthy();
+      await this.persistThenApply(
+        this.ledger.proposeAttachAuthorization(
+          holdId,
+          nonce,
+          payer,
+          validBefore,
+          checkedNow(this.opts.clock),
+        ),
+      );
     });
   }
 
-  /** Holds the chain could not resolve. A human must look at these. */
+  /** Generic x402 creation failure is ambiguous and never releases budget. */
+  async markCreationIndeterminate(
+    holdId: string,
+    reason: Extract<
+      IndeterminateReason,
+      "creation_outcome_unknown" | "authorization_unreadable"
+    > = "creation_outcome_unknown",
+  ): Promise<void> {
+    await this.exclusive(async () => {
+      this.assertHealthy();
+      await this.persistThenApply(
+        this.ledger.proposeIndeterminate(holdId, reason, checkedNow(this.opts.clock)),
+      );
+    });
+  }
+
+  /**
+   * Record a facilitator claim as nonterminal, then immediately seek chain proof.
+   */
+  async reportSettlement(holdId: string, transaction: string): Promise<ReconcileResult> {
+    return this.exclusive(async () => {
+      this.assertHealthy();
+      await this.persistThenApply(
+        this.ledger.proposeSettlementReported(
+          holdId,
+          transaction,
+          checkedNow(this.opts.clock),
+        ),
+      );
+      return reconcileOne(holdId, this.reconcileOptions());
+    });
+  }
+
+  async reconcileHold(holdId: string): Promise<ReconcileResult> {
+    return this.exclusive(async () => {
+      this.assertHealthy();
+      return reconcileOne(holdId, this.reconcileOptions());
+    });
+  }
+
+  async reconcile(): Promise<readonly ReconcileResult[]> {
+    return this.exclusive(async () => {
+      this.assertHealthy();
+      return sweep(this.reconcileOptions());
+    });
+  }
+
   needsReconciliation(): readonly Entry[] {
     return this.ledger.needsReconciliation();
   }
 
-  /** The audit trail. */
   history(): readonly Entry[] {
     return this.ledger.history();
   }
+
+  isFaulted(): boolean {
+    return this.fault !== undefined;
+  }
+
+  private reconcileOptions(): ReconcileOptions {
+    return {
+      ledger: this.ledger,
+      chain: this.opts.chain,
+      clock: this.opts.clock,
+      commit: (entry) => this.persistThenApply(entry),
+    };
+  }
+
+  private async persistThenApply(entry: Entry): Promise<void> {
+    try {
+      await this.opts.store.append(entry);
+      this.ledger.applyPersisted(entry);
+    } catch (cause) {
+      const fault = new GuardFaultError(
+        "ledger transition was not safely committed; Guard is faulted until reopen",
+        { cause },
+      );
+      this.fault = fault;
+      throw fault;
+    }
+  }
+
+  private assertHealthy(): void {
+    if (this.fault) throw this.fault;
+  }
+
+  private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.operationTail;
+    let release!: () => void;
+    this.operationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
+function validateProfile(policy: Policy, chain: ChainReader): void {
+  let supported = false;
+  try {
+    const p = chain.profile;
+    supported =
+      typeof p === "object" &&
+      p !== null &&
+      p.chainId === SETTLEMENT_PROFILE.chainId &&
+      p.network === SETTLEMENT_PROFILE.network &&
+      typeof p.asset === "string" &&
+      p.asset.toLowerCase() === SETTLEMENT_PROFILE.asset.toLowerCase() &&
+      p.decimals === SETTLEMENT_PROFILE.decimals &&
+      p.scheme === SETTLEMENT_PROFILE.scheme;
+  } catch {
+    supported = false;
+  }
+  const policyMatches =
+    policy.asset.network === SETTLEMENT_PROFILE.network &&
+    policy.asset.address.toLowerCase() === SETTLEMENT_PROFILE.asset.toLowerCase() &&
+    policy.asset.decimals === SETTLEMENT_PROFILE.decimals;
+  if (!supported || !policyMatches) {
+    throw new GuardFaultError(
+      "version 0.1 requires a matching Base Sepolia Circle USDC exact-settlement profile",
+    );
+  }
+}
+
+function optionMs(value: number | undefined, fallback: number, label: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new GuardFaultError(`${label} must be a positive safe integer`);
+  }
+  return resolved;
+}
+
+function checkedNow(clock: Clock): number {
+  const now = clock.now();
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new GuardFaultError("clock returned an invalid unix-millisecond timestamp");
+  }
+  return now;
+}
+
+function checkedExpiry(now: number, ttlMs: number): number {
+  const expiresAt = now + ttlMs;
+  if (!Number.isSafeInteger(expiresAt)) {
+    throw new GuardFaultError("caller-attested approval expiry exceeds safe integer range");
+  }
+  return expiresAt;
+}
+
+function snapshotQuote(value: Quote): Quote {
+  let fields: Record<keyof Quote, unknown>;
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error();
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error();
+    fields = Object.fromEntries(
+      (["amount", "asset", "network", "payTo", "resource"] as const).map((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+          throw new Error();
+        }
+        return [key, descriptor.value];
+      }),
+    ) as Record<keyof Quote, unknown>;
+  } catch {
+    throw new GuardFaultError("quote is malformed");
+  }
+  if (
+    typeof fields.amount !== "bigint" ||
+    typeof fields.asset !== "string" ||
+    typeof fields.network !== "string" ||
+    typeof fields.payTo !== "string" ||
+    typeof fields.resource !== "string"
+  ) {
+    throw new GuardFaultError("quote is malformed");
+  }
+  if (fields.amount < 0n || fields.amount > UINT256_MAX) {
+    throw new GuardFaultError("quote amount must be an unsigned uint256 bigint");
+  }
+  if (Buffer.byteLength(fields.resource, "utf8") > 8_192) {
+    throw new GuardFaultError("quote resource exceeds 8192 UTF-8 bytes");
+  }
+  return Object.freeze({
+    amount: fields.amount,
+    asset: fields.asset.toLowerCase(),
+    network: fields.network,
+    payTo: fields.payTo.toLowerCase(),
+    resource: fields.resource,
+  });
+}
+
+function freezeVerdict(verdict: Verdict): Verdict {
+  const budgets = Object.freeze(
+    verdict.budgets.map((budget) => Object.freeze({ ...budget })),
+  );
+  return Object.freeze({ ...verdict, quote: verdict.quote, budgets });
 }

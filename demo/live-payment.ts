@@ -24,7 +24,13 @@ import { paymentMiddlewareFromConfig } from "@x402/express";
 import { ExactEvmScheme as ExactEvmServerScheme } from "@x402/evm/exact/server";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
-import { Guard, loadPolicy, JsonlLedgerStore, ViemChainReader, x402GuardHooks } from "../src/index.js";
+import {
+  Guard,
+  JsonlLedgerStore,
+  ViemChainReader,
+  loadPolicy,
+  x402GuardHooks,
+} from "../src/index.js";
 
 const NETWORK = "eip155:84532" as const;
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
@@ -36,7 +42,11 @@ async function main() {
   if (!key) throw new Error("set X402_TESTNET_KEY in .env (a funded Base Sepolia key)");
 
   const account = privateKeyToAccount(key as `0x${string}`);
-  const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+  const rpcUrl = process.env["BASE_SEPOLIA_RPC_URL"];
+  const publicClient = createPublicClient({
+    chain: baseSepolia,
+    transport: http(rpcUrl),
+  });
 
   // Refuse to run on an empty wallet — the whole point is a real settlement.
   const balance = (await publicClient.readContract({
@@ -75,7 +85,7 @@ async function main() {
 
   // --- the guard, allowlisting the receiver --------------------------------
   const now = Date.now();
-  const { policy, hash } = loadPolicy({
+  const loadedPolicy = loadPolicy({
     policy: "demo", version: 1,
     asset: { symbol: "USDC", address: USDC, network: NETWORK, decimals: 6 },
     mandate: { holder: "demo", agent: "demo-agent", expires: new Date(now + 3600_000).toISOString() },
@@ -86,18 +96,29 @@ async function main() {
   }, now);
 
   const guard = await Guard.open({
-    policy, policyHash: hash,
+    loadedPolicy,
     store: new JsonlLedgerStore("./demo/ledger.jsonl"),
-    chain: new ViemChainReader(),
+    chain: rpcUrl ? new ViemChainReader({ rpcUrl }) : new ViemChainReader(),
     clock: { now: () => Date.now() },
   });
 
   // --- the guarded client --------------------------------------------------
   const signer = toClientEvmSigner(account, publicClient);
   const hooks = x402GuardHooks(guard);
+  let observedPayeeDenial = false;
+  const observedBeforeHook: typeof hooks.onBeforePaymentCreation = async (ctx) => {
+    const result = await hooks.onBeforePaymentCreation(ctx);
+    if (
+      result?.abort === true &&
+      result.reason === "x402-guard: policy payee_not_allowed"
+    ) {
+      observedPayeeDenial = true;
+    }
+    return result;
+  };
   const client = x402Client
     .fromConfig({ schemes: [{ network: NETWORK, client: new ExactEvmScheme(signer) }] })
-    .onBeforePaymentCreation(hooks.onBeforePaymentCreation)
+    .onBeforePaymentCreation(observedBeforeHook)
     .onAfterPaymentCreation(hooks.onAfterPaymentCreation)
     .onPaymentResponse(hooks.onPaymentResponse)
     .onPaymentCreationFailure(hooks.onPaymentCreationFailure);
@@ -105,17 +126,44 @@ async function main() {
   const fetchWithPay = wrapFetchWithPayment(fetch, client);
 
   console.log("\n--- paying GET /paid ($0.01) ---");
+  const paymentHistoryStart = guard.history().length;
   const res = await fetchWithPay(`http://localhost:${PORT}/paid`);
   console.log("status:", res.status, await res.text());
+  if (res.status !== 200) throw new Error("guarded payment did not return 200");
+  const currentHold = guard.history().slice(paymentHistoryStart)
+    .find((entry) => entry.status === "held");
+  if (!currentHold) throw new Error("current payment did not create a durable hold");
+
+  // A facilitator success is only a hint. The response hook immediately checks
+  // finalized chain state, which may legitimately lag the just-mined payment.
+  // Poll the durable proof path for at most one minute; never manufacture a
+  // settlement from the response itself.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (
+      guard.history().slice(paymentHistoryStart)
+        .some(
+          (entry) =>
+            entry.holdId === currentHold.holdId && entry.status === "settled",
+        )
+    ) break;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    await guard.reconcile();
+  }
 
   console.log("\n--- ledger (the audit trail) ---");
   for (const e of guard.history()) {
-    console.log(`  ${e.status.padEnd(12)} ${e.holdId}${e.transaction ? "  tx=" + e.transaction : ""}`);
+    const transaction = e.status === "settled" ? `  tx=${e.transaction}` : "";
+    console.log(`  ${e.status.padEnd(22)} ${e.holdId}${transaction}`);
   }
-  const settled = guard.history().find((e) => e.status === "settled");
-  if (settled?.transaction) {
-    console.log(`\n✓ settled on-chain: https://sepolia.basescan.org/tx/${settled.transaction}`);
+  const settled = guard.history().slice(paymentHistoryStart)
+    .find(
+      (entry) =>
+        entry.holdId === currentHold.holdId && entry.status === "settled",
+    );
+  if (!settled || settled.status !== "settled") {
+    throw new Error("current payment did not reach finalized settlement");
   }
+  console.log(`\n✓ settled on-chain: https://sepolia.basescan.org/tx/${settled.transaction}`);
 
   // --- now try to pay a seller the policy does not allow --------------------
   console.log("\n--- attempting to pay a NON-allowlisted seller ($0.01) ---");
@@ -123,19 +171,41 @@ async function main() {
     address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [account.address],
   })) as bigint;
 
-  const res2 = await fetchWithPay(`http://localhost:${PORT + 1}/paid`).catch((e) => ({ status: "blocked", err: String(e) }));
+  const denialHistoryStart = guard.history().length;
+  let deniedRequestCompleted = false;
+  try {
+    await fetchWithPay(`http://localhost:${PORT + 1}/paid`);
+    deniedRequestCompleted = true;
+  } catch {
+    // The observed hook result below distinguishes a policy denial from an
+    // unrelated network failure without printing upstream error text.
+  }
   const balanceAfter = (await publicClient.readContract({
     address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [account.address],
   })) as bigint;
 
-  console.log("result:", "status" in res2 ? res2.status : res2);
-  console.log("USDC moved:", Number(balanceBefore - balanceAfter) / 1e6, "(want 0 — the guard blocked it before signing)");
-  if (balanceBefore === balanceAfter) {
-    console.log("✓ blocked: the guard denied a non-allowlisted payment and no money moved");
+  const denialCreatedEvidence = guard.history().length !== denialHistoryStart;
+  if (
+    deniedRequestCompleted ||
+    !observedPayeeDenial ||
+    denialCreatedEvidence ||
+    balanceBefore !== balanceAfter
+  ) {
+    throw new Error("non-allowlisted payment was not proven safely blocked");
   }
+  console.log("USDC moved: 0 atomic units");
+  console.log("✓ blocked: the guard denied a non-allowlisted payment before signing");
 
   strangerServer.close();
   server.close();
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+main()
+  .then(() => process.exit(0))
+  .catch(() => {
+    console.error(
+      "demo failed; if demo/ledger.jsonl predates schema v1, manually move it " +
+        "aside for quarantine before rerunning; no upstream error text was printed",
+    );
+    process.exit(1);
+  });

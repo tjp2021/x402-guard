@@ -17,7 +17,7 @@ asset:
 mandate:
   holder: research-team
   agent: research-agent-01
-  expires: 2026-12-31T00:00:00Z
+  expires: 2030-12-31T00:00:00Z
 
 # The only sellers the agent may pay. Anyone not listed is denied.
 payees:
@@ -29,7 +29,7 @@ payees:
 
 payments:
   max_per_payment: "2.00"        # no single payment over $2.00
-  require_approval_over: "0.50"  # anything $0.50+ needs a human's yes first
+  require_approval_over: "0.50"  # anything $0.50+ needs an explicit caller attestation
 
 # Cumulative caps. This is what the stateless per-transaction hook cannot do:
 # a payment that is under max_per_payment can still be denied here because the

@@ -17,32 +17,58 @@
 
 import type { Atomic } from "./amount.js";
 
+/** The only settlement rail version 0.1 is allowed to use. */
+export const SETTLEMENT_PROFILE = Object.freeze({
+  chainId: 84532,
+  network: "eip155:84532",
+  asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  decimals: 6,
+  scheme: "exact",
+} as const);
+
+export interface SettlementProfile {
+  readonly chainId: number;
+  readonly network: string;
+  readonly asset: string;
+  readonly decimals: number;
+  readonly scheme: string;
+}
+
 /** A payment quote, normalized from an x402 402 challenge. */
 export interface Quote {
   /** Atomic units, as x402 quotes them. */
-  amount: Atomic;
+  readonly amount: Atomic;
   /** Token contract address. */
-  asset: string;
+  readonly asset: string;
   /** CAIP-2 network id, e.g. "eip155:84532" (Base Sepolia). */
-  network: string;
+  readonly network: string;
   /** Recipient address. */
-  payTo: string;
+  readonly payTo: string;
   /** The resource being paid for. */
-  resource: string;
+  readonly resource: string;
+}
+
+/** Durable settlement facts. Raw resource URLs never cross this boundary. */
+export interface EvidenceQuote {
+  readonly amount: Atomic;
+  readonly asset: string;
+  readonly network: string;
+  readonly payTo: string;
+  readonly resourceHash: string;
 }
 
 export interface Payee {
-  name: string;
-  address: string;
+  readonly name: string;
+  readonly address: string;
 }
 
 export type BudgetWindow = "rolling-24h" | "rolling-1h";
 
 export interface Budget {
-  name: string;
-  window: BudgetWindow;
+  readonly name: string;
+  readonly window: BudgetWindow;
   /** Cumulative cap across every payment in the window. */
-  limit: Atomic;
+  readonly limit: Atomic;
 }
 
 /**
@@ -50,32 +76,32 @@ export interface Budget {
  * decimal parsing so the evaluator never sees a string.
  */
 export interface Policy {
-  name: string;
-  version: number;
-  asset: {
-    symbol: string;
+  readonly name: string;
+  readonly version: number;
+  readonly asset: {
+    readonly symbol: string;
     /** Quotes on any other asset are denied — including mainnet addresses. */
-    address: string;
+    readonly address: string;
     /** Quotes on any other network are denied — including mainnet. */
-    network: string;
-    decimals: number;
+    readonly network: string;
+    readonly decimals: number;
   };
-  mandate: {
-    holder: string;
-    agent: string;
+  readonly mandate: {
+    readonly holder: string;
+    readonly agent: string;
     /** Unix ms. A quote after this is denied. */
-    expires: number;
+    readonly expires: number;
   };
   /** Allowlist. An unlisted payee is denied — default-deny, confirmed 2026-07-14. */
-  payees: Payee[];
-  payments: {
-    maxPerPayment: Atomic;
-    /** At or above this, a human must approve. */
-    requireApprovalOver: Atomic;
+  readonly payees: readonly Payee[];
+  readonly payments: {
+    readonly maxPerPayment: Atomic;
+    /** At or above this, the in-process caller must attest approval. */
+    readonly requireApprovalOver: Atomic;
   };
-  budgets: Budget[];
-  velocity: {
-    maxPaymentsPerHour: number;
+  readonly budgets: readonly Budget[];
+  readonly velocity: {
+    readonly maxPaymentsPerHour: number;
   };
 }
 
@@ -95,26 +121,26 @@ export type Reason =
 
 /** A budget's state at decision time — what the stateless SDK hook cannot see. */
 export interface BudgetState {
-  name: string;
-  window: BudgetWindow;
-  limit: Atomic;
+  readonly name: string;
+  readonly window: BudgetWindow;
+  readonly limit: Atomic;
   /** Settled spend plus outstanding holds. */
-  committed: Atomic;
-  remaining: Atomic;
+  readonly committed: Atomic;
+  readonly remaining: Atomic;
 }
 
 export interface Verdict {
-  decision: Decision;
-  reason: Reason;
+  readonly decision: Decision;
+  readonly reason: Reason;
   /** The exact policy clause that decided it, e.g. "budgets.daily-cap". */
-  clause: string;
+  readonly clause: string;
   /** Human-readable, for the report. Never parsed. */
-  detail: string;
+  readonly detail: string;
   /** Budget state at decision time. Evidence, not decoration. */
-  budgets: BudgetState[];
-  quote: Quote;
+  readonly budgets: readonly BudgetState[];
+  readonly quote: Quote;
   /** Hash of the canonical policy document that produced this verdict. */
-  policyHash: string;
+  readonly policyHash: string;
   /** Unix ms. */
-  at: number;
+  readonly at: number;
 }

@@ -39,9 +39,10 @@ export interface EvaluateInput {
   /** Unix ms. Injected, never read from the clock. */
   now: number;
   /**
-   * A human approval already granted for THIS quote, if any. When present and
-   * valid, it satisfies the approval tier — the payment is allowed rather than
-   * sent back for approval again.
+   * An in-process caller approval assertion for THIS quote, if any. When
+   * present and valid, it satisfies the advisory approval tier — the payment is
+   * allowed rather than sent back for approval again. This does not prove that
+   * an independent human or external authority approved the payment.
    *
    * Without this, an approval-tier verdict is a dead end: it repeats forever,
    * so the only way to pay is to bypass the guard, which puts the money outside
@@ -218,10 +219,11 @@ export function evaluate(input: EvaluateInput): Verdict {
   }
 
   // --- Approval clause ----------------------------------------------------
-  // At or above the threshold a human must approve — UNLESS a valid approval
-  // for this exact quote is already in hand. An approval bound to a different
-  // quote, or one that has expired, does not apply: it is one approval for one
-  // payment, which is what stops a single "yes" being replayed.
+  // At or above the threshold the caller must explicitly attest approval —
+  // UNLESS a valid assertion for this exact quote is already in hand. An
+  // assertion bound to a different quote, or one that has expired, does not
+  // apply: it is one assertion for one payment, which stops a single "yes"
+  // being replayed. Independent human proof requires an external verifier.
 
   if (quote.amount >= policy.payments.requireApprovalOver) {
     const a = input.approval;
