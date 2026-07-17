@@ -7,8 +7,8 @@ authorization holds, and proof-bearing settlement recovery.
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 
-> Pre-release: not published to npm yet. Version 0.1 is deliberately limited to
-> the `exact` EIP-3009 scheme with Circle USDC on Base Sepolia.
+> Version 0.1 is pre-1.0, testnet-only, and deliberately limited to the `exact`
+> EIP-3009 scheme with Circle USDC on Base Sepolia.
 
 ## Why it exists
 
@@ -25,6 +25,37 @@ unused and chain time strictly past `validBefore`. Before attachment, local stat
 cannot prove that signing did not race or already occur, so v0.1 exposes no
 proof-free release method, keeps the hold committed, and blocks another payment
 from entering the signing gap at the same time.
+
+## Install
+
+```sh
+npm install x402-guard
+```
+
+Before registry publication, install from a source checkout instead:
+
+```sh
+git clone https://github.com/tjp2021/x402-guard
+cd x402-guard
+npm ci
+npm run build
+```
+
+Node 20 or newer is required.
+
+## Supported profile
+
+| Component | Version 0.1 support |
+|---|---|
+| Node.js | 20 or newer |
+| `@x402/core`, `@x402/evm`, `@x402/fetch` | Exactly 2.18.0 |
+| viem | Exactly 2.55.2 |
+| Network | Base Sepolia (`eip155:84532`) |
+| Asset | Circle USDC (`0x036CbD53842c5426634e7929541eC2318f3dCF7e`) |
+| Payment scheme | `exact`, EIP-3009 only |
+
+The exact dependency versions are part of the audited v0.1 boundary, not merely
+installation preferences.
 
 ## Safety boundary
 
@@ -73,27 +104,14 @@ The trusted computing base is explicit: the exact-scheme signer and hook
 lifecycle must create at most one authorization per before-hook attempt and bind
 its scheme, network, asset, value, and payee exactly to the selected
 requirements. Unknown signer metadata, Permit2, and longer authorization windows
-are rejected before a hold. `LedgerStore` must durably append before resolving; `ChainReader`
-must faithfully derive its terminal results from the configured chain; and
-`Clock` must provide trustworthy policy and budget time. The included JSONL and
-viem adapters implement those contracts under the single-writer and trusted-RPC
-assumptions above. A custom implementation of those ports becomes part of the
-security boundary; TypeScript cannot prove its I/O behavior. Runtime versions of
-the x402 SDK and viem are pinned because the v0.1 safety analysis depends on
-their exact hook order, payload shape, signing route, and RPC behavior.
-
-## Install from source
-
-```sh
-git clone https://github.com/tjp2021/x402-guard
-cd x402-guard
-npm ci
-npm run build
-```
-
-Node 20 or newer is required. The package remains unpublished until its exact
-tarball receives explicit release approval. From a consuming project, install
-the built checkout with `npm install /absolute/path/to/x402-guard`.
+are rejected before a hold. `LedgerStore` must durably append before resolving;
+`ChainReader` must faithfully derive its terminal results from the configured
+chain; and `Clock` must provide trustworthy policy and budget time. The included
+JSONL and viem adapters implement those contracts under the single-writer and
+trusted-RPC assumptions above. A custom implementation of those ports becomes
+part of the security boundary; TypeScript cannot prove its I/O behavior. Runtime
+versions of the x402 SDK and viem are pinned because the v0.1 safety analysis
+depends on their exact hook order, payload shape, signing route, and RPC behavior.
 
 ## Policy
 
@@ -127,7 +145,7 @@ velocity:
 The loader rejects unknown keys and any rail other than the fixed Base Sepolia
 USDC profile.
 
-## Open a Guard
+## Create a Guard
 
 ```ts
 import {
@@ -140,17 +158,69 @@ import {
 const loadedPolicy = await loadPolicyFile("./policy.yaml", Date.now());
 const rpcUrl = process.env["BASE_SEPOLIA_RPC_URL"];
 const ledgerPath = process.env["X402_GUARD_LEDGER_PATH"];
+if (!rpcUrl) throw new Error("set a trusted BASE_SEPOLIA_RPC_URL");
 if (!ledgerPath) throw new Error("set X402_GUARD_LEDGER_PATH outside the repository");
-const chain = rpcUrl
-  ? new ViemChainReader({ rpcUrl })
-  : new ViemChainReader();
 
 const guard = await Guard.open({
   loadedPolicy,
   store: new JsonlLedgerStore(ledgerPath),
-  chain,
+  chain: new ViemChainReader({ rpcUrl }),
   clock: { now: () => Date.now() },
 });
+```
+
+The RPC is required in the recommended setup because terminal settlement and
+release decisions trust its finalized Base Sepolia view. Keep the ledger and
+its parent directory private and outside the source checkout.
+
+## Choose one payment integration
+
+Use exactly one integration path for a payment attempt. Do not call
+`guard.authorize` yourself for a payment that also passes through the x402
+hooks—the before hook already creates the durable hold.
+
+### Option A: x402 hooks (recommended)
+
+The adapter reserves budget, binds the signed authorization, and routes x402
+responses through chain reconciliation:
+
+```ts
+import { x402GuardHooks } from "x402-guard";
+
+const hooks = x402GuardHooks(guard);
+
+// Register these before every other manual after/failure hook.
+client
+  .onAfterPaymentCreation(hooks.onAfterPaymentCreation)
+  .onPaymentCreationFailure(hooks.onPaymentCreationFailure)
+  .onPaymentResponse(hooks.onPaymentResponse);
+
+// Register any other manual before hooks above this line. The Guard must be
+// the final manual before hook so nothing can alter signer inputs afterward.
+client.onBeforePaymentCreation(hooks.onBeforePaymentCreation);
+```
+
+The Guard must be the final manual before-creation hook and the first manual
+after-creation and creation-failure hook. Do not install a recovery hook before
+it. Server-declared payment extensions are rejected, and the supported exact
+signer creates at most one EIP-3009 authorization per before-hook attempt.
+
+See [DEMO.md](./DEMO.md) and [demo/live-payment.ts](./demo/live-payment.ts) for a
+complete client setup.
+
+### Option B: direct Guard API
+
+Use this only when your own integration owns the signing lifecycle and will
+durably attach the resulting authorization. The quote amount is atomic USDC:
+
+```ts
+const quote = {
+  amount: 1_000_000n,
+  asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  network: "eip155:84532",
+  payTo: "0xE5f6070809A0b1C2d3E4f5061728394A5b6C7788",
+  resource: "https://seller.example/report",
+} as const;
 
 let authorization = await guard.authorize(quote);
 
@@ -164,31 +234,9 @@ if (authorization.decision === "require_approval") {
 }
 ```
 
-An ALLOW includes a durable `holdId`. The preferred integration is the x402 hook
-adapter, which binds the signed authorization and routes every response through
-chain reconciliation:
-
-```ts
-import { x402GuardHooks } from "x402-guard";
-
-const hooks = x402GuardHooks(guard);
-
-// Register any other before hooks first. The Guard must be the final manual
-// before hook so nothing can abort or alter signer inputs after it reserves.
-client
-  .onBeforePaymentCreation(hooks.onBeforePaymentCreation)
-  // Register these before any other after/failure hooks. The after hook freezes
-  // the signed payload; the failure hook prevents recovered-payload bypasses.
-  .onAfterPaymentCreation(hooks.onAfterPaymentCreation)
-  .onPaymentCreationFailure(hooks.onPaymentCreationFailure)
-  .onPaymentResponse(hooks.onPaymentResponse);
-```
-
-This ordering is part of the supported v0.1 security boundary: the Guard is the
-final manual before-creation hook and the first manual after-creation and
-creation-failure hook. Do not install a recovery hook before it. Server-declared
-payment extensions are rejected, and the supported exact signer creates at most
-one EIP-3009 authorization per before-hook attempt.
+An ALLOW includes a durable `holdId`; it is not permission to skip authorization
+attachment or reconciliation. Most users should use Option A instead of
+implementing this lifecycle themselves.
 
 ## Lifecycle semantics
 
