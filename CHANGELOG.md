@@ -4,9 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-07-17
 
-Candidate version: `0.1.0`.
+First public release. Testnet-only; supports one reviewed composition: exact
+EIP-3009 payments with Circle USDC on Base Sepolia.
 
 ### Added
 
