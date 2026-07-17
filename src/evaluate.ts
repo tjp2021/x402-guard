@@ -192,7 +192,7 @@ export function evaluate(input: EvaluateInput): Verdict {
     });
   }
 
-  // The clause the stateless SDK hook structurally cannot enforce: an agent
+  // The clause a bare per-attempt SDK hook does not supply: an agent
   // that splits an over-budget purchase into two under-limit charges passes
   // every per-payment check and still breaches the budget.
   for (const b of budgets) {

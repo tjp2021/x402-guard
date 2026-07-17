@@ -8,9 +8,9 @@
  *   rebuilt XACML in JSON.
  * - Deny always wins, and evaluation never short-circuits on the first match.
  *   Stripe Radar's first-match-wins lets a broad Allow bypass every Block rule.
- * - Budgets are a first-class noun, not something you compute in a callback.
- *   This is the whole gap: x402's own hook is stateless, so it cannot see that
- *   two under-limit payments add up to an over-limit one.
+ * - Budgets are a first-class noun, not something left to an ad hoc callback.
+ *   The SDK provides lifecycle hooks; this library supplies durable cumulative
+ *   state so two under-limit payments cannot hide an over-limit total.
  * - Every verdict names the clause that decided it. XACML's most-cited
  *   operational failure was that a denial could not tell you why.
  */
@@ -119,7 +119,7 @@ export type Reason =
   | "approval_required"
   | "within_policy";
 
-/** A budget's state at decision time — what the stateless SDK hook cannot see. */
+/** A budget's state at decision time — what this durable layer contributes. */
 export interface BudgetState {
   readonly name: string;
   readonly window: BudgetWindow;

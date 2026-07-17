@@ -5,8 +5,8 @@
  * guard-wrapped client. The payment settles on-chain through the public
  * facilitator, so it produces a real, inspectable transaction hash.
  *
- * Run:  X402_TESTNET_KEY must be a funded Base Sepolia key (see DEMO.md).
- *       npm run demo
+ * Run:  X402_TESTNET_KEY must be a funded Base Sepolia key (see README.md).
+ *       npx tsx examples/live-payment.ts
  *
  * Everything money-related is testnet. There is no mainnet path.
  */
@@ -68,7 +68,7 @@ async function main() {
   app.get("/paid", (_req, res) => res.json({ ok: true, secret: "the paid resource" }));
 
   // A second route whose seller is NOT on the policy allowlist. The guard should
-  // refuse to pay it — before signing, so no money can move.
+  // deny it before the supported signer is invoked.
   const stranger = "0x00000000000000000000000000000000BeefBeef";
   const app2 = express();
   app2.use(paymentMiddlewareFromConfig(
@@ -97,7 +97,7 @@ async function main() {
 
   const guard = await Guard.open({
     loadedPolicy,
-    store: new JsonlLedgerStore("./demo/ledger.jsonl"),
+    store: new JsonlLedgerStore("./examples/ledger.jsonl"),
     chain: rpcUrl ? new ViemChainReader({ rpcUrl }) : new ViemChainReader(),
     clock: { now: () => Date.now() },
   });
@@ -204,7 +204,7 @@ main()
   .then(() => process.exit(0))
   .catch(() => {
     console.error(
-      "demo failed; if demo/ledger.jsonl predates schema v1, manually move it " +
+      "demo failed; if examples/ledger.jsonl predates schema v1, manually move it " +
         "aside for quarantine before rerunning; no upstream error text was printed",
     );
     process.exit(1);

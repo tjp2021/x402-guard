@@ -5,7 +5,8 @@
  * 0x82ba06be, the public settlement recorded by this repository. It exists
  * because a bug once bound the Transfer on the wrong side of the AuthorizationUsed
  * log, and the fixtures hid it. A claim that reconciliation "meets the real chain"
- * has to be executed against the real chain, not asserted. Run: `npm run verify:live`.
+ * has to be executed against the real chain, not asserted.
+ * Run from a source checkout: `npx tsx scripts/verify-live-reconcile.ts`.
  */
 import { ViemChainReader } from "../src/adapters/viem-chain.js";
 import type { EvidenceQuote } from "../src/policy.js";

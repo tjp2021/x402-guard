@@ -4,7 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-07-16
+## [Unreleased]
+
+Candidate version: `0.1.0`.
 
 ### Added
 
@@ -19,11 +21,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
-- Pin the audited x402 SDK and viem versions.
+- Pin the reviewed and regression-tested x402 SDK and viem versions.
 - Reject Permit2, server extensions, unknown signing metadata, mutable hook
   inputs, malformed payload envelopes, and recovered-payload bypasses.
 - Require exact receipt-local `AuthorizationUsed` and matching USDC `Transfer`
   evidence before recording settlement.
 - Remove every proof-free release path for ambiguous authorization outcomes.
-
-[0.1.0]: https://github.com/tjp2021/x402-guard/releases/tag/v0.1.0

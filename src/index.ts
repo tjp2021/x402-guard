@@ -1,5 +1,5 @@
 /**
- * x402-guard — a spending policy that holds across an agent's whole session.
+ * x402-guard — cumulative spending policy backed by one durable ledger.
  *
  * The composition root is `Guard`. Lifecycle proposal/apply and reconciliation
  * internals deliberately stay off the package surface. Callers can inspect

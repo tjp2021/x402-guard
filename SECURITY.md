@@ -2,8 +2,9 @@
 
 ## Supported versions
 
-`0.1.x` is the only supported release line. Version 0.1 is limited to the exact
-EIP-3009 scheme with Circle USDC on Base Sepolia; it is not a mainnet release.
+No version has been published yet. Security reports against the current `0.1.0`
+candidate are welcome. The candidate is limited to exact EIP-3009 with Circle
+USDC on Base Sepolia; it is not a mainnet release.
 
 ## Reporting a vulnerability
 
@@ -23,4 +24,5 @@ Sepolia RPC are part of the trusted computing base. The library cannot stop
 same-host code from bypassing or replacing it, and it does not provide
 Byzantine-RPC resistance, wallet custody, delivery attestation, or independent
 proof of human approval. See [README.md](./README.md) and
-[DECISIONS.md](./DECISIONS.md) for the complete boundary.
+[design decisions](https://github.com/tjp2021/x402-guard/blob/main/docs/design-decisions.md)
+for the complete boundary.

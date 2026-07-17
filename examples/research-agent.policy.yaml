@@ -31,7 +31,7 @@ payments:
   max_per_payment: "2.00"        # no single payment over $2.00
   require_approval_over: "0.50"  # anything $0.50+ needs an explicit caller attestation
 
-# Cumulative caps. This is what the stateless per-transaction hook cannot do:
+# Cumulative caps. This is the durable state a bare per-attempt hook lacks:
 # a payment that is under max_per_payment can still be denied here because the
 # earlier payments this window already spent the budget.
 budgets:

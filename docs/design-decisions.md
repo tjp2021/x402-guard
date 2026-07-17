@@ -1,4 +1,4 @@
-# Decisions
+# Design decisions
 
 A short record of the design calls that shaped this library, and the ones I got
 wrong and reversed. Newest last. I'd rather show the reversals than a polished
@@ -13,12 +13,13 @@ rounding — rounding a limit down silently loosens it, up silently tightens it.
 
 ## The gate is stateful; that is the whole point
 
-x402's own pre-payment hook (`onBeforePaymentCreation`) exists and can veto a
+x402's pre-payment hook (`onBeforePaymentCreation`) exists and can veto a
 payment — I was wrong to think otherwise, and caught that before writing code by
-reading the SDK source. But the hook is stateless: it sees one quote at a time.
-So it cannot see that two under-limit payments add up to an over-limit one. This
-library adds the cumulative budget the hook can't hold. That is the one thing it
-does that the SDK does not.
+reading the SDK source. The SDK supplies a lifecycle hook, but a bare hook does
+not supply a durable cumulative ledger, append-before-sign reservation, or
+recovery semantics. This library provides that application-owned stateful
+layer. A caller could build another stateful hook; the contribution here is the
+explicit lifecycle and failure boundary, not exclusive access to state.
 
 ## Authorization holds, because check-then-pay is not atomic
 
@@ -32,12 +33,12 @@ and only then applies it in memory and returns an ALLOW the caller may act on.
 ## Reconcile against the chain; never guess
 
 When a payment goes quiet — a crash, a dead network, a facilitator that never
-answered — the outcome is not unknowable. The payment either settled on a public
-chain or it did not. So the reconciler asks the configured chain reader rather
-than assuming. Three answers stay distinct: verified settled, finalized unused
-after expiry, and cannot-say. An unreachable RPC is never mistaken for "did not
-happen" — collapsing those two is how a hold gets released for money that already
-left.
+answered — the reconciler asks the configured chain reader rather than assuming.
+Under the trusted-chain assumption, an attached authorization can eventually
+resolve after settlement or expiry. Until then, or when the reader fails, the
+correct result is unknown. Three answers stay distinct: verified settled,
+finalized unused after expiry, and cannot-say. An unreachable RPC is never
+mistaken for "did not happen."
 
 ## Never release a signed authorization that can still land
 
@@ -107,7 +108,7 @@ whose chain timestamp is strictly later than the canonical bigint
 finality, and clock skew all produce `unknown`, which carries no release
 authority.
 
-This is proof-bearing evidence under a trusted-RPC assumption, not a locally
+This is finalized-chain evidence under a trusted-RPC assumption, not a locally
 verified consensus proof. A compromised provider can fabricate chain state. The
 chain-ID, finality-support, and nonempty-code checks catch misconfiguration and
 ordinary failure; Byzantine-RPC resistance needs an independent consensus or
@@ -118,7 +119,7 @@ multi-provider verification boundary.
 The happy path used to mark a hold settled directly from a facilitator success
 response. That keeps budget committed, but it makes the audit trail claim more
 than was verified. `reportSettlement` now records only a bounded transaction
-hint and immediately asks the same finalized chain-proof path used for recovery.
+hint and immediately asks the same finalized chain-evidence path used for recovery.
 Settlement is terminal only after the nonce and the USDC Transfer's token,
 payer, recipient, amount, block, and transaction all agree.
 

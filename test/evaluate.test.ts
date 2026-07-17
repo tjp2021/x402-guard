@@ -64,7 +64,7 @@ describe("the centerpiece: an agent cannot split an over-budget purchase", () =>
   it("blocks the third charge even though each is under every per-payment limit", () => {
     // The agent wants $5.40 but the daily cap is $5.00. Each individual payment
     // of $1.80 is under the $2.00 per-payment cap, so a per-transaction limit —
-    // which is all x402's stateless hook can express — sees nothing wrong with
+    // which is all a bare per-attempt hook expresses — sees nothing wrong with
     // any of them. Only cumulative state catches the third.
     //
     // (These amounts are over the $0.50 approval threshold, so they route to a

@@ -1,6 +1,23 @@
-# Running a live payment through the guard
+# Examples and demonstrations
 
-This wires the guard into a real `@x402/fetch` client and makes a real payment on
+Start with the deterministic mandate demo. It uses no wallet, network, or
+payment and shows the core failure mode in under a minute:
+
+```sh
+npm run build
+npm run demo
+```
+
+It attempts three individually valid $1.80 payments against a $5.00 rolling
+budget. The first two attach synthetic authorization metadata, a new Guard
+opens from the same ledger, and the third is denied before another authorization
+is admitted. It does not create a wallet signature or invoke x402 hooks. The
+temporary ledger path is printed so the evidence can be inspected.
+
+## Running a live payment through the guard
+
+The separately invoked `npx tsx examples/live-payment.ts` command wires the guard into a real
+`@x402/fetch` client and makes a real payment on
 Base Sepolia testnet. Every API call below is against the installed `@x402/core`,
 `@x402/evm`, and `@x402/fetch` (v2.18). The adapter is typechecked against those
 hook contracts and its lifecycle is fixture-tested. What this file cannot do for
@@ -46,7 +63,7 @@ const chain = rpcUrl
   : new ViemChainReader();
 const guard = await Guard.open({
   loadedPolicy,
-  store: new JsonlLedgerStore("./demo/ledger.jsonl"), // ignored by this repository
+  store: new JsonlLedgerStore("./examples/ledger.jsonl"), // ignored by this repository
   chain,
   clock: { now: () => Date.now() },
 });
@@ -76,7 +93,7 @@ The response hook does not trust facilitator success as settlement evidence. It
 records the transaction as a nonterminal hint, then asks the trusted Base
 Sepolia RPC for finalized USDC state, the exact nonce, and Transfer. A newly
 mined transaction may not yet be finalized, so the repository's
-[`demo/live-payment.ts`](https://github.com/tjp2021/x402-guard/blob/main/demo/live-payment.ts)
+[`examples/live-payment.ts`](https://github.com/tjp2021/x402-guard/blob/main/examples/live-payment.ts)
 polls the same reconciliation path for up to one minute.
 
 If creation fails before the authorization can be read and durably attached, the
@@ -98,18 +115,22 @@ provide for you:
    fund it from the [Circle faucet](https://faucet.circle.com) (select Base
    Sepolia). Transfers are gasless — the facilitator sponsors gas — so no
    testnet ETH is needed.
-2. **A payable x402 endpoint on Base Sepolia** to point step 4 at. Any x402
-   resource server that accepts the exact/EIP-3009 scheme on `eip155:84532`
-   works; you can also stand one up locally with `@x402/express`.
+2. **A payable endpoint matching the complete supported profile and local
+   policy.** It must use exact EIP-3009 on `eip155:84532`, pinned Circle USDC
+   signing metadata, a positive timeout of at most one hour, no server
+   extensions, and an allowed payee and amount. The included live script stands
+   up that server locally with `@x402/express`.
 
 Running the demo is an explicit live testnet action: it reads the configured
 testnet key and transfers valueless testnet USDC. It is never run by CI or the
 ordinary test suite.
 
-The live script makes one allowed `$0.01` payment and then proves that a payment
-to a non-allowlisted seller is rejected before signing with no USDC movement.
-The deterministic suite separately proves that the third `$1.80` charge crosses
-the example policy's `$5.00` cumulative cap and is denied.
+The live script makes one allowed `$0.01` payment. It then observes the supported
+signer path deny a non-allowlisted seller before signing and confirms that the
+payer's USDC balance did not change during that attempt. This is bounded demo
+evidence, not a claim that the host or an unrelated wallet path cannot move
+funds. The deterministic demo separately shows the third `$1.80` charge denied
+because it would cross the example policy's `$5.00` cumulative cap.
 
 If this checkout has a pre-v0.1 `ledger.jsonl`, move it aside for manual review
 before the demo. The hardened reader intentionally rejects legacy unversioned
@@ -122,9 +143,30 @@ The adapter's installed x402 hook types and lifecycle contract are tested in
 catch split purchases, preserve `validBefore` as bigint seconds, reject
 unsupported rails and malformed challenges, keep ambiguous creation failures
 committed, and treat facilitator success as nonterminal until reader evidence
-arrives. The separately invoked live script is the end-to-end x402Client test.
+arrives. The separately invoked live script is the optional end-to-end
+x402Client check.
 
 `test/viem-chain.test.ts` exercises wrong-chain, missing-finality, missing-code,
 clock-skew, log/receipt, and exact Transfer cases with deterministic clients. The
-optional `npm run verify:live` command runs the real reader against the public
+optional `npx tsx scripts/verify-live-reconcile.ts` command runs the real reader against the public
 Base Sepolia settlement cited by this repository; it is not part of CI.
+
+## Suggested three-minute walkthrough
+
+1. Run `npm run demo` to show cumulative holds, Guard reopen, and the third
+   payment denied before another authorization. The demo uses synthetic
+   authorization metadata and does not sign.
+2. Run the focused durable-exposure regression:
+
+   ```sh
+   npm test -- test/x402-adapter.test.ts -t "latches a huge redirected signer payload"
+   ```
+
+3. Run the focused receipt-binding regression:
+
+   ```sh
+   npm test -- test/viem-chain.test.ts -t "absent or inconsistent in the receipt"
+   ```
+
+4. End with the supported profile and threat-model non-goals. These tests use
+   local fixtures; they do not make a live payment.

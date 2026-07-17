@@ -1,7 +1,7 @@
 {
   "name": "x402-guard",
   "version": "0.1.0",
-  "description": "A spending policy that holds across an agent's whole session \u2014 not one transaction at a time.",
+  "description": "A cumulative x402 spending policy backed by one durable ledger.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -27,15 +27,15 @@
   "scripts": {
     "clean": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "test": "vitest run",
+    "test:demo": "node examples/mandate-demo.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "typecheck:demo": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck demo/live-payment.ts scripts/verify-live-reconcile.ts",
+    "typecheck:examples": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck examples/live-payment.ts scripts/verify-live-reconcile.ts",
     "build": "tsc -p tsconfig.build.json",
-    "verify": "npm run typecheck && npm run typecheck:demo && npm test && npm run build",
+    "verify": "npm run typecheck && npm run typecheck:examples && npm run build && npm test && npm run test:demo",
     "prepack": "npm run clean && npm run build",
     "prepublishOnly": "npm run verify",
-    "demo": "tsx demo/live-payment.ts",
-    "verify:live": "tsx scripts/verify-live-reconcile.ts"
+    "demo": "node examples/mandate-demo.mjs"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -67,13 +67,10 @@
   },
   "files": [
     "dist",
-    "demo/live-payment.ts",
-    "examples",
-    "scripts/verify-live-reconcile.ts",
+    "examples/mandate-demo.mjs",
+    "examples/research-agent.policy.yaml",
     "LICENSE",
     "README.md",
-    "DECISIONS.md",
-    "DEMO.md",
     "SECURITY.md",
     "CHANGELOG.md"
   ]
