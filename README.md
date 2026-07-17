@@ -132,11 +132,15 @@ for the full reasoning.
 
 ## Install
 
-Install the released package with:
+This package is distributed through GitHub releases, not the npm registry.
+Install the verified release artifact directly:
 
 ```sh
-npm install x402-guard
+npm install https://github.com/tjp2021/x402-guard/releases/download/v0.1.0/x402-guard-0.1.0.tgz
 ```
+
+The tarball's SHA-256 is recorded in
+[docs/releases/v0.1.0.md](https://github.com/tjp2021/x402-guard/blob/main/docs/releases/v0.1.0.md).
 
 For source review or contribution, use a repository checkout:
 
