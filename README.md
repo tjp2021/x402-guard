@@ -41,6 +41,7 @@ npm ci
 npm run build
 ```
 
+Then run `npm install /absolute/path/to/x402-guard` from the consuming project.
 Node 20 or newer is required.
 
 ## Supported profile
