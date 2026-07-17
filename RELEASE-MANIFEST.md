@@ -2,15 +2,15 @@
 
 ## x402-guard 0.1.0
 
-- Package-content commit: `974d3191d6441e3b48fb4a657276d3638adeb78e`
+- Package-content commit: `85c29d8f8bd8cee616fb332a57faf46ccd91f29f`
 - Artifact: `x402-guard-0.1.0.tgz`
 - Packed files: 36
-- Packed size: 57,563 bytes
-- Unpacked size: 215,837 bytes
-- SHA-1 (npm shasum): `6a9275145319c877facb9f3afe2a3cc06a12bb22`
-- SHA-256: `2c6d27e790f88e57ab06d26d755421a8e199f91f20dc981b7df4f000e26fda02`
-- SHA-512: `fedfcec202d5248f8cc7bf9a255636c8b3893cdc84758b3aec70285e319aceb476a7e0aa3a712555ec0ebc21b279c93d2cf663286e98410fa4365b1aa3ecbdb4`
-- npm integrity: `sha512-/t/OwgLVJI+Mx7+aJVY2yLOJPNyEdYs67HAoXjGazrR2p+CqOnElVewOvCGyeck9LPZjKG6YQQ+kNlsao+y9tA==`
+- Packed size: 57,595 bytes
+- Unpacked size: 215,917 bytes
+- SHA-1 (npm shasum): `6ba1cb61358f4f3101f246728c1b5f4d69797006`
+- SHA-256: `13ffc13bb0309d8af278d1578475047d3c4156815753952e3f893ea9d13f678a`
+- SHA-512: `715245da22872f62c04dddd1cb58e4615ae8c26421cf58db1551b12671ae23eaf2759693efeef68a8f939e135be669f4fa22a3b32eb994091518d49548517054`
+- npm integrity: `sha512-cVJF2iKHL2LATd3Ry1jkYVrowmQhz1jbFVGxJnGuI+rydZaT7+72io+TnhNb5mn0+iKjsy65lAkVGNSVSFFwVA==`
 
 ## Verification
 
