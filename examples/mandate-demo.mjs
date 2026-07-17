@@ -54,7 +54,7 @@ async function authorizeAndAttach(guard, sequence) {
     BigInt(Math.floor(now / 1_000) + 3_600),
   );
   console.log(
-    `payment ${sequence}: ALLOW $1.80 — synthetic authorization attached durably`,
+    `payment ${sequence}: ALLOW $1.80: synthetic authorization attached durably`,
   );
 }
 
@@ -84,7 +84,7 @@ async function main() {
     throw new Error("the third payment was not denied by the cumulative budget");
   }
 
-  console.log("payment 3: DENY  $1.80 — projected $5.40 exceeds $5.00");
+  console.log("payment 3: DENY  $1.80: projected $5.40 exceeds $5.00");
   console.log("result: no third authorization was admitted or attached");
   console.log(`evidence: ${ledgerPath}`);
 }

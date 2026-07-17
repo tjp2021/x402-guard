@@ -69,13 +69,37 @@ is an inspectable, application-owned implementation with payee allowlists,
 rolling budgets, velocity rules, durable authorization holds, and conservative
 reconciliation.
 
-## Run the core demonstration
+## Install
 
-The default demo uses no wallet, network, secret, or payment:
+This package is distributed through GitHub releases, not the npm registry.
+Install the verified release artifact directly:
 
 ```sh
+npm install https://github.com/tjp2021/x402-guard/releases/download/v0.1.0/x402-guard-0.1.0.tgz
+```
+
+The tarball's SHA-256 is recorded in
+[docs/releases/v0.1.0.md](https://github.com/tjp2021/x402-guard/blob/main/docs/releases/v0.1.0.md).
+
+For source review, the demo, or contribution, use a repository checkout:
+
+```sh
+git clone https://github.com/tjp2021/x402-guard
+cd x402-guard
 npm ci
 npm run build
+```
+
+Then run `npm install /absolute/path/to/x402-guard` from the consuming project.
+
+Node 20 or newer is required.
+
+## Run the core demonstration
+
+From a repository checkout, the default demo uses no wallet, network, secret,
+or payment:
+
+```sh
 npm run demo
 ```
 
@@ -83,6 +107,18 @@ It allows two $1.80 attempts, attaches synthetic authorization metadata, opens a
 new Guard from the same ledger, and denies a third attempt because the projected
 $5.40 exceeds the $5.00 application policy. It does not create a wallet
 signature or invoke x402 hooks.
+
+```text
+application policy: $5.00 rolling-24h; each request: $1.80
+
+payment 1: ALLOW $1.80: synthetic authorization attached durably
+payment 2: ALLOW $1.80: synthetic authorization attached durably
+
+Guard reopen: reading the same durable ledger
+recovered committed amount: $3.60 (outcome still ambiguous)
+payment 3: DENY  $1.80: projected $5.40 exceeds $5.00
+result: no third authorization was admitted or attached
+```
 
 The separately invoked `npx tsx examples/live-payment.ts` action spends valueless
 Base Sepolia USDC and requires explicit testnet credentials. It is available
@@ -129,31 +165,6 @@ See the
 [threat model](https://github.com/tjp2021/x402-guard/blob/main/docs/threat-model.md),
 and [design decisions](https://github.com/tjp2021/x402-guard/blob/main/docs/design-decisions.md)
 for the full reasoning.
-
-## Install
-
-This package is distributed through GitHub releases, not the npm registry.
-Install the verified release artifact directly:
-
-```sh
-npm install https://github.com/tjp2021/x402-guard/releases/download/v0.1.0/x402-guard-0.1.0.tgz
-```
-
-The tarball's SHA-256 is recorded in
-[docs/releases/v0.1.0.md](https://github.com/tjp2021/x402-guard/blob/main/docs/releases/v0.1.0.md).
-
-For source review or contribution, use a repository checkout:
-
-```sh
-git clone https://github.com/tjp2021/x402-guard
-cd x402-guard
-npm ci
-npm run build
-```
-
-Then run `npm install /absolute/path/to/x402-guard` from the consuming project.
-
-Node 20 or newer is required.
 
 ## Supported profile
 
@@ -329,6 +340,12 @@ For the project-level reasoning and role relevance, see the
 
 This is an independent implementation inspired by public ecosystem problems. It
 does not represent adoption or endorsement by the linked projects.
+
+## Contributing
+
+Questions and issues are welcome. This is a versioned reference implementation,
+not a roadmap-driven product: open an issue to discuss any change before
+sending a pull request, especially anything that touches the safety boundary.
 
 ## Security and license
 
