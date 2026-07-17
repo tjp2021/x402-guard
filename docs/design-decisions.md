@@ -2,19 +2,19 @@
 
 A short record of the design calls that shaped this library, and the ones I got
 wrong and reversed. Newest last. I'd rather show the reversals than a polished
-story — the reversals are where the real reasoning is.
+story. The reversals are where the real reasoning is.
 
 ## Money is integer-only
 
 Amounts are `bigint` atomic units and never touch a float. `0.1 + 0.2 !== 0.3`
 is not a curiosity in a payments library, it is a wrong authorization decision.
 `parseDecimal` refuses more precision than the asset carries rather than
-rounding — rounding a limit down silently loosens it, up silently tightens it.
+rounding: rounding a limit down silently loosens it, up silently tightens it.
 
 ## The gate is stateful; that is the whole point
 
 x402's pre-payment hook (`onBeforePaymentCreation`) exists and can veto a
-payment — I was wrong to think otherwise, and caught that before writing code by
+payment. I was wrong to think otherwise, and caught that before writing code by
 reading the SDK source. The SDK supplies a lifecycle hook, but a bare hook does
 not supply a durable cumulative ledger, append-before-sign reservation, or
 recovery semantics. This library provides that application-owned stateful
@@ -24,7 +24,7 @@ explicit lifecycle and failure boundary, not exclusive access to state.
 ## Authorization holds, because check-then-pay is not atomic
 
 Two payments evaluated against the same remaining balance both pass and both
-settle — the budget is breached by the tool meant to prevent it. So the gate
+settle. The budget is breached by the tool meant to prevent it. So the gate
 reserves budget at authorize time and reconciles at settlement, the way card
 networks have for decades. Every Guard mutation runs through one serialized
 queue. `Guard.authorize` evaluates, proposes the hold, appends and fsyncs it,
@@ -32,8 +32,8 @@ and only then applies it in memory and returns an ALLOW the caller may act on.
 
 ## Reconcile against the chain; never guess
 
-When a payment goes quiet — a crash, a dead network, a facilitator that never
-answered — the reconciler asks the configured chain reader rather than assuming.
+When a payment goes quiet (a crash, a dead network, a facilitator that never
+answered), the reconciler asks the configured chain reader rather than assuming.
 Under the trusted-chain assumption, an attached authorization can eventually
 resolve after settlement or expiry. Until then, or when the reader fails, the
 correct result is unknown. Three answers stay distinct: verified settled,
@@ -46,7 +46,7 @@ This one I got wrong twice. An EIP-3009 authorization is a signed bearer
 instrument: once signed, a facilitator can submit it any time until its
 `validBefore` deadline. So "not on chain yet" is not "never will be." Releasing a
 hold before that deadline frees budget the agent respends while the original is
-still landable — both settle. The hold now carries `validBefore` and will not
+still landable, and both settle. The hold now carries `validBefore` and will not
 release until the authorization can no longer be used.
 
 And because the authorization is attached *after* the payload is signed, there
@@ -84,8 +84,8 @@ version `2`), allows only the installed signer's absent/default or explicit
 `AuthorizationUsed` carries no amount and no recipient. Confirming on it alone
 lets a caller sign a payment to a stranger and have the ledger record it as the
 payment we approved, with a real transaction hash as proof. So the settlement's
-ERC-20 `Transfer` log is checked against the quote — token, payer, recipient,
-amount — and bound to this nonce's authorization by log position.
+ERC-20 `Transfer` log is checked against the quote (token, payer, recipient,
+amount) and bound to this nonce's authorization by log position.
 
 ## Fail closed, everywhere, and know which way is safe
 
@@ -159,7 +159,7 @@ control needs an external verifier and an explicit evidence schema.
 ## Tests must be able to fail
 
 The safety-critical claims above are backed by a test that goes red when the
-code breaks — checked by deliberately breaking the code and confirming the test
+code breaks, checked by deliberately breaking the code and confirming the test
 fails, not by asserting it does. I learned this the hard way:
 more than once a test passed against deliberately broken code, which means it was
 decoration. If a test cannot fail, it is not a test.

@@ -31,7 +31,7 @@ These concerns are visible in the ecosystem. The x402 project has a public
 covering price, asset, network, and recipient validation. Coinbase's managed
 [Agentic Wallet limits](https://docs.cdp.coinbase.com/agentic-wallet/mcp/faq)
 validate spending controls as a category. `x402-guard` is an independent,
-application-owned exploration of the same broader problem—not a claim of
+application-owned exploration of the same broader problem, not a claim of
 uniqueness or official status.
 
 ## What I built

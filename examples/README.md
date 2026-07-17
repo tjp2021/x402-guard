@@ -88,7 +88,7 @@ const client = x402Client
 // and a positive authorization timeout no longer than one hour.
 
 // 4. Pay. The guard evaluates before signing, reserves budget, captures the
-//    authorization, and verifies settlement — all through the hooks.
+//    authorization, and verifies settlement, all through the hooks.
 const fetchWithPay = wrapFetchWithPayment(fetch, client);
 const res = await fetchWithPay("https://an-x402-endpoint.example/paid-resource");
 
@@ -120,7 +120,7 @@ provide for you:
 
 1. **Base Sepolia USDC in the wallet.** Print the address (step 1 does), then
    fund it from the [Circle faucet](https://faucet.circle.com) (select Base
-   Sepolia). Transfers are gasless — the facilitator sponsors gas — so no
+   Sepolia). Transfers are gasless (the facilitator sponsors gas), so no
    testnet ETH is needed.
 2. **A payable endpoint matching the complete supported profile and local
    policy.** It must use exact EIP-3009 on `eip155:84532`, pinned Circle USDC
