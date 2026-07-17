@@ -16,6 +16,13 @@ temporary ledger path is printed so the evidence can be inspected.
 
 ## Running a live payment through the guard
 
+> **Source-checkout only:** The published npm package intentionally excludes the
+> live-payment script, live reconciliation script, tests, and testnet credential
+> workflow described below. Clone the
+> [GitHub repository](https://github.com/tjp2021/x402-guard) before running any
+> command in the remainder of this guide. The packaged deterministic demo above
+> is the only example intended to run from the npm tarball.
+
 The separately invoked `npx tsx examples/live-payment.ts` command wires the guard into a real
 `@x402/fetch` client and makes a real payment on
 Base Sepolia testnet. Every API call below is against the installed `@x402/core`,

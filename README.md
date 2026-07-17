@@ -130,10 +130,15 @@ See the
 and [design decisions](https://github.com/tjp2021/x402-guard/blob/main/docs/design-decisions.md)
 for the full reasoning.
 
-## Install from source
+## Install
 
-The npm package has not been published. Until publication, install from a source
-checkout:
+Install the released package with:
+
+```sh
+npm install x402-guard
+```
+
+For source review or contribution, use a repository checkout:
 
 ```sh
 git clone https://github.com/tjp2021/x402-guard
@@ -143,11 +148,6 @@ npm run build
 ```
 
 Then run `npm install /absolute/path/to/x402-guard` from the consuming project.
-After registry publication, installation will be:
-
-```sh
-npm install x402-guard
-```
 
 Node 20 or newer is required.
 
