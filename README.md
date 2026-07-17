@@ -20,10 +20,10 @@ policy's holder field is descriptive metadata, not authenticated authority.
 Three services each request $1.80:
 
 ```text
-request 1: $1.80 — individually valid
-request 2: $1.80 — individually valid
-request 3: $1.80 — individually valid
-total:     $5.40 — mandate violated
+request 1: $1.80  (individually valid)
+request 2: $1.80  (individually valid)
+request 3: $1.80  (individually valid)
+total:     $5.40  (mandate violated)
 ```
 
 The x402 SDK provides per-attempt lifecycle hooks. A bare hook does not provide
