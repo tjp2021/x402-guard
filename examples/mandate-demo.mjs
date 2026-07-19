@@ -76,6 +76,15 @@ async function main() {
 
   console.log("\nGuard reopen: reading the same durable ledger");
   guard = await Guard.open({ ...options, store: new JsonlLedgerStore(ledgerPath) });
+  const latestByHold = new Map();
+  for (const entry of guard.history()) latestByHold.set(entry.holdId, entry);
+  let recovered = 0n;
+  for (const entry of latestByHold.values()) {
+    if (entry.status !== "released") recovered += entry.amount;
+  }
+  if (recovered !== 3_600_000n) {
+    throw new Error("recovered committed amount was not $3.60");
+  }
   console.log("recovered committed amount: $3.60 (outcome still ambiguous)");
 
   await guard.attestCallerApproval(payment);
