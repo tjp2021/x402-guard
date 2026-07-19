@@ -1,8 +1,9 @@
 # Design decisions
 
-A short record of the design calls that shaped this library, and the ones I got
-wrong and reversed. Newest last. I'd rather show the reversals than a polished
-story. The reversals are where the real reasoning is.
+A short record of the design calls that shaped this library, including the
+ones that were wrong and got reversed. Newest last. The reversals are kept in
+view rather than smoothed into a polished story; they are where the real
+reasoning is.
 
 ## Money is integer-only
 
@@ -14,8 +15,8 @@ rounding: rounding a limit down silently loosens it, up silently tightens it.
 ## The gate is stateful; that is the whole point
 
 x402's pre-payment hook (`onBeforePaymentCreation`) exists and can veto a
-payment. I was wrong to think otherwise, and caught that before writing code by
-reading the SDK source. The SDK supplies a lifecycle hook, but a bare hook does
+payment. An early assumption here was the opposite, and it was caught before
+any code was written by reading the SDK source. The SDK supplies a lifecycle hook, but a bare hook does
 not supply a durable cumulative ledger, append-before-sign reservation, or
 recovery semantics. This library provides that application-owned stateful
 layer. A caller could build another stateful hook; the contribution here is the
@@ -42,7 +43,7 @@ mistaken for "did not happen."
 
 ## Never release a signed authorization that can still land
 
-This one I got wrong twice. An EIP-3009 authorization is a signed bearer
+This decision was wrong twice before it was right. An EIP-3009 authorization is a signed bearer
 instrument: once signed, a facilitator can submit it any time until its
 `validBefore` deadline. So "not on chain yet" is not "never will be." Releasing a
 hold before that deadline frees budget the agent respends while the original is
@@ -97,8 +98,8 @@ indeterminate outcome stays committed rather than being handed back.
 
 ## Trusted finalized contract state is the only negative evidence
 
-I originally treated a completed log search plus local time as evidence that a
-payment did not happen. That is not strong enough: an RPC can be stale, a range
+The original design treated a completed log search plus local time as evidence
+that a payment did not happen. That is not strong enough: an RPC can be stale, a range
 can be wrong or truncated, and a local clock can be ahead of the chain.
 
 Version 0.1 is pinned to Base Sepolia Circle USDC. Release of an attached signed
@@ -160,6 +161,6 @@ control needs an external verifier and an explicit evidence schema.
 
 The safety-critical claims above are backed by a test that goes red when the
 code breaks, checked by deliberately breaking the code and confirming the test
-fails, not by asserting it does. I learned this the hard way:
+fails, not by asserting it does. That lesson was learned the hard way:
 more than once a test passed against deliberately broken code, which means it was
 decoration. If a test cannot fail, it is not a test.

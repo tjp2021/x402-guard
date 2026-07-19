@@ -4,7 +4,7 @@ Distribution is a GitHub release with the verified tarball attached. This
 project is deliberately NOT published to the npm registry (decided 2026-07-17):
 a testnet-only reference implementation gains nothing from a registry listing,
 and a registry package implies a maintenance commitment this project does not
-make. Do not `npm publish` without a new, explicit decision from Tim.
+make. Do not `npm publish` without a new, explicit maintainer decision.
 
 Publishing is a separate, explicitly approved action. Preparing or reviewing a
 release candidate does not authorize a GitHub release, a Git tag, or a Git push.

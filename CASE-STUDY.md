@@ -4,8 +4,8 @@
 
 The x402 SDK provides per-attempt payment lifecycle hooks, but a bare hook does
 not supply durable cumulative spending policy or recovery for ambiguous signed
-authorizations. I built `x402-guard` as an independent, testnet-only reference
-implementation: it reserves budget before a supported x402 signer receives the
+authorizations. `x402-guard` is an independent, testnet-only reference
+implementation of that missing layer: it reserves budget before a supported x402 signer receives the
 payment requirements and keeps uncertain authority committed until finalized
 Base Sepolia evidence resolves it under a trusted-RPC assumption.
 
@@ -34,7 +34,7 @@ validate spending controls as a category. `x402-guard` is an independent,
 application-owned exploration of the same broader problem, not a claim of
 uniqueness or official status.
 
-## What I built
+## What was built
 
 ```text
 402 requirements
