@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-No version has been published yet. Security reports against the current `0.1.0`
-candidate are welcome. The candidate is limited to exact EIP-3009 with Circle
-USDC on Base Sepolia; it is not a mainnet release.
+The supported version is `0.1.0`, distributed as a GitHub release. It is
+limited to exact EIP-3009 with Circle USDC on Base Sepolia; it is not a mainnet
+release. Security reports against it are welcome.
 
 ## Reporting a vulnerability
 
