@@ -9,7 +9,7 @@ payments reserved after failure.**
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 
 > **Status:** independent, pre-1.0 reference implementation. Version 0.1 is
-> testnet-only and supports one reviewed and regression-tested composition:
+> testnet-only and supports one regression-tested composition:
 > exact EIP-3009 payments with Circle USDC on Base Sepolia. It is not an
 > official x402 package or a production wallet-security product.
 
@@ -262,6 +262,7 @@ reconcile every nonterminal hold. See
 | Policy allows a quote | `held` after bundled-store fsync; signing-gap lock | No |
 | Signed payload is readable and matches | `authorization_attached` with bigint deadline | No |
 | Facilitator reports success | `settlement_reported`; transaction remains a hint | No |
+| Chain lookup begins | `reconciling` appended before any RPC call | No |
 | Trusted RPC reports finalized exact nonce and Transfer evidence | `settled` | Yes |
 | Trusted RPC reports finalized unused nonce after deadline | `released` | Yes |
 | Generic creation outcome is unknown | `indeterminate`; original quote remains committed | No |
@@ -281,9 +282,10 @@ Version 0.1 includes:
 - serialized evaluate-and-hold with append-before-allow in the bundled JSONL
   adapter;
 - one in-flight signing gap at a time;
-- strict validation of the supported USDC EIP-712 domain and EIP-3009 route;
-- rejection of Permit2, server extensions, unknown signer metadata, and a
-  server-declared `maxTimeoutSeconds` above one hour;
+- strict validation of the declared USDC EIP-712 domain parameters and
+  EIP-3009 route;
+- rejection of Permit2, populated server extensions, unknown signer metadata,
+  and a server-declared `maxTimeoutSeconds` above one hour;
 - strict versioned evidence that excludes raw URLs, upstream errors, and
   signatures;
 - an irreversible latch when observed signed authority cannot be bounded by the
@@ -315,11 +317,14 @@ npm run verify
 npm pack --dry-run
 ```
 
-The local release candidate passes 205 deterministic tests, strict TypeScript
-checks for the project and examples, a clean build, dependency audits,
-secret scans, and a clean-room package import/declaration check. Representative
-safety branches were also mutation-checked by confirming that their exact
-regressions fail when the protection is removed.
+`npm run verify` runs the strict TypeScript checks for the project and
+examples, a clean build, the 205 deterministic tests, and the offline demo;
+this is exactly what CI runs. The release process additionally ran dependency
+audits, secret scans, and a clean-room package import/declaration check;
+those results are recorded in
+[docs/releases/v0.1.0.md](https://github.com/tjp2021/x402-guard/blob/main/docs/releases/v0.1.0.md).
+Several safety branches were also spot-checked by deliberately removing the
+protection and confirming the matching test fails.
 
 These are local verification results, not an independent security audit. The
 ordinary suite uses fixtures and performs no wallet, payment, or live-network

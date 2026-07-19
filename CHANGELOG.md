@@ -22,7 +22,7 @@ EIP-3009 payments with Circle USDC on Base Sepolia.
 
 ### Security
 
-- Pin the reviewed and regression-tested x402 SDK and viem versions.
+- Pin the regression-tested x402 SDK and viem versions.
 - Reject Permit2, server extensions, unknown signing metadata, mutable hook
   inputs, malformed payload envelopes, and recovered-payload bypasses.
 - Require exact receipt-local `AuthorizationUsed` and matching USDC `Transfer`

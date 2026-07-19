@@ -24,7 +24,7 @@ accounted for.
 - the stable, private, single-writer ledger parent directory;
 - the `LedgerStore` durability contract;
 - the configured Base Sepolia RPC and `ChainReader` proof contract;
-- the exact reviewed and regression-tested runtime dependency versions.
+- the exact regression-tested runtime dependency versions.
 
 ## Invariants
 
