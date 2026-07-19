@@ -330,6 +330,16 @@ These are local verification results, not an independent security audit. The
 ordinary suite uses fixtures and performs no wallet, payment, or live-network
 action.
 
+### Live settlement evidence
+
+One end-to-end run was executed against Base Sepolia using the live example
+flow: the guard evaluated the payment against its policy before signing, the
+EIP-3009 authorization settled on chain, and the reconciler matched the
+on-chain transfer back to that exact authorization.
+
+Settlement transaction:
+[`0x82ba06be…a249a5ce2`](https://sepolia.basescan.org/tx/0x82ba06be4ad379fc4f61e14533b4812bfff366060e9c63368dc435a1249a5ce2)
+
 For the project-level reasoning and role relevance, see the
 [case study](https://github.com/tjp2021/x402-guard/blob/main/CASE-STUDY.md).
 
