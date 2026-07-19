@@ -9,10 +9,10 @@ implementation: it reserves budget before a supported x402 signer receives the
 payment requirements and keeps uncertain authority committed until finalized
 Base Sepolia evidence resolves it under a trusted-RPC assumption.
 
-This is a portfolio-grade reference implementation first and an npm package
-second. Its purpose is to make the failure mode concrete, provide inspectable
-design and tests, and demonstrate systems judgment around money, concurrency,
-durability, and partial failure.
+This is a reference implementation first and an installable package second.
+Its purpose is to make the failure mode concrete and to provide inspectable
+design and tests for the hard parts: money, concurrency, durability, and
+partial failure.
 
 ## The public problem
 
@@ -92,7 +92,7 @@ authorization or a generic exact-signer outcome is recorded. If the observed
 signed payload is unreadable or economically mismatched, an irreversible
 authority-exposure latch blocks new payment authority across restart.
 
-## What changed under adversarial review
+## What changed as the assumptions were attacked
 
 The implementation became narrower and more conservative as its assumptions
 were attacked. The work added or strengthened:
@@ -114,7 +114,7 @@ were reversed rather than hidden from the final narrative.
 
 ## Verification evidence
 
-The prepared local candidate has:
+The 0.1.0 release has:
 
 - 205 deterministic tests;
 - strict project and standalone example/script TypeScript checks;
@@ -122,8 +122,8 @@ The prepared local candidate has:
 - full and production dependency audits with no known vulnerabilities at the
   time of preparation;
 - repository-history and extracted-package secret scans;
-- representative mutation checks confirming that load-bearing regressions fail
-  when their protections are removed.
+- spot checks confirming that load-bearing regressions fail when their
+  protections are deliberately removed.
 
 These are local verification results, not an independent security audit. No live
 wallet or payment is invoked by the verification suite. The separate live
@@ -143,20 +143,13 @@ verified human approval, delivery attestation, refunds, or dispute resolution.
 That narrowness is intentional: the goal is a defensible reference boundary,
 not a broad security claim.
 
-## What this demonstrates
+## What this shows
 
-This artifact demonstrates the ability to:
-
-- identify a sourced ecosystem problem and reduce it to concrete invariants;
-- reason about authorization, concurrency, crashes, and ambiguous outcomes;
-- design a fail-closed state machine with explicit trust boundaries;
-- integrate against a real SDK while testing hostile lifecycle behavior;
-- turn audit findings into code, tests, documentation, and release gates;
-- explain what a system does not prove as carefully as what it does.
-
-Those capabilities map directly to solutions architecture, developer relations,
-implementation and forward-deployed engineering, payments infrastructure,
-product security, and technical program leadership for agentic systems.
+The artifact reduces a sourced ecosystem problem to concrete invariants, pins
+those invariants with a fail-closed state machine and tests that must fail
+when a protection is removed, and states what the system does not prove as
+carefully as what it does. The code, tests, and design record are public;
+judge the rest from them.
 
 ## Three-minute walkthrough
 
